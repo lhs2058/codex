@@ -20,7 +20,7 @@ body {
   font-family: "Pretendard", "Noto Sans KR", "Apple SD Gothic Neo", "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-button, select { font: inherit; }
+button, select, input { font: inherit; }
 a { color: inherit; text-decoration: none; }
 
 .app-shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
@@ -53,6 +53,8 @@ h1 { margin: 0; font-size: 24px; letter-spacing: -.04em; }
 .top-actions { display: flex; align-items: center; gap: 10px; }
 .upload-button { min-height: 42px; padding: 0 14px; display: flex; align-items: center; gap: 8px; color: white; background: var(--forest); border: 0; cursor: pointer; font-size: 11px; font-weight: 800; }
 .upload-button:hover { background: var(--forest-deep); }
+.manual-button { min-height: 42px; padding: 0 13px; display: flex; align-items: center; gap: 7px; color: var(--forest); background: #e8efea; border: 1px solid #cbd8d0; cursor: pointer; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.manual-button:hover { color: white; background: var(--forest); border-color: var(--forest); }
 .report-button { min-height: 42px; padding: 0 12px; display: flex; align-items: center; gap: 7px; background: white; border: 1px solid var(--line); cursor: pointer; font-size: 10px; font-weight: 800; white-space: nowrap; }
 .report-button.excel { color: var(--forest); }
 .report-button.pdf { color: #a3432b; }
@@ -150,6 +152,33 @@ h1 { margin: 0; font-size: 24px; letter-spacing: -.04em; }
 .insight-card a { width: 34px; height: 34px; display: grid; place-items: center; color: var(--ink); background: var(--lime); }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 
+.modal-backdrop { position: fixed; inset: 0; z-index: 100; padding: 28px; display: grid; place-items: center; overflow-y: auto; background: rgba(13, 29, 22, .72); backdrop-filter: blur(5px); }
+.manual-modal { width: min(920px, 100%); max-height: calc(100vh - 56px); overflow-y: auto; background: var(--paper); box-shadow: 0 28px 80px rgba(0, 0, 0, .28); }
+.manual-modal-head { position: sticky; top: 0; z-index: 2; min-height: 88px; padding: 22px 28px; display: flex; align-items: center; justify-content: space-between; color: white; background: var(--forest-deep); }
+.manual-modal-head h2 { margin: 0; font-size: 23px; letter-spacing: -.04em; }
+.manual-modal-head button { width: 38px; height: 38px; display: grid; place-items: center; color: white; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); cursor: pointer; }
+.manual-modal form { padding: 24px 28px 28px; }
+.manual-date-row { display: grid; grid-template-columns: 220px 1fr; gap: 16px; align-items: end; }
+.manual-summary { min-height: 62px; padding: 12px 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; color: white; background: var(--forest); }
+.manual-summary span { display: grid; gap: 3px; color: #a9c7b7; font-size: 9px; }
+.manual-summary strong { color: var(--lime); font-size: 18px; }
+.manual-sections { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.manual-sections fieldset { min-width: 0; margin: 0; padding: 17px; border: 1px solid var(--line); background: white; }
+.manual-sections fieldset.reason-fields { grid-column: 1 / -1; }
+.manual-sections legend { padding: 0 6px; color: var(--forest); font-size: 11px; font-weight: 900; }
+.manual-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.reason-fields .manual-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.manual-field { display: grid; gap: 6px; color: var(--muted); font-size: 9px; font-weight: 800; }
+.manual-field input { width: 100%; min-height: 40px; padding: 8px 10px; color: var(--ink); background: #f8f9f5; border: 1px solid #d9ded7; outline: none; font-size: 12px; font-weight: 750; }
+.manual-field input:focus { border-color: var(--forest); box-shadow: 0 0 0 2px rgba(31,77,58,.1); }
+.manual-error { margin: 14px 0 0; padding: 10px 12px; color: #9c432a; background: #fff0e9; border-left: 3px solid var(--orange); font-size: 10px; font-weight: 800; }
+.manual-modal-foot { margin-top: 20px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.manual-modal-foot p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.manual-modal-foot > div { display: flex; gap: 8px; flex: none; }
+.manual-modal-foot button { min-height: 40px; padding: 0 17px; border: 0; cursor: pointer; font-size: 10px; font-weight: 850; }
+.manual-modal-foot .cancel { color: var(--ink); background: #e4e7e1; }
+.manual-modal-foot .save { color: var(--forest-deep); background: var(--lime); }
+
 .pdf-report {
   position: fixed; left: -10000px; top: 0; width: 794px; min-height: 1060px; padding: 48px;
   color: #17231d; background: #fff; font-family: "Noto Sans KR", "Malgun Gothic", "Arial", sans-serif;
@@ -205,6 +234,8 @@ h1 { margin: 0; font-size: 24px; letter-spacing: -.04em; }
   .icon-button, .profile { display: none; }
   .upload-button { width: 42px; padding: 0; justify-content: center; }
   .upload-button span { display: none; }
+  .manual-button { width: 42px; padding: 0; justify-content: center; }
+  .manual-button span { display: none; }
   .report-button { width: 42px; padding: 0; justify-content: center; }
   .report-button span { display: none; }
   .date-picker { max-width: 165px; }
@@ -220,4 +251,17 @@ h1 { margin: 0; font-size: 24px; letter-spacing: -.04em; }
   .shift-panel, .reasons-panel, .insight-card { grid-column: span 12; }
   .unit-row { grid-template-columns: 1fr .85fr .55fr; }
   .unit-row > span:last-child { display: none; }
+  .topbar { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .top-actions { width: 100%; flex-wrap: wrap; }
+  .modal-backdrop { padding: 0; place-items: stretch; }
+  .manual-modal { width: 100%; max-height: 100vh; min-height: 100vh; }
+  .manual-modal-head { padding: 18px 20px; }
+  .manual-modal form { padding: 20px; }
+  .manual-date-row { grid-template-columns: 1fr; }
+  .manual-summary { grid-template-columns: repeat(2, 1fr); }
+  .manual-sections { grid-template-columns: 1fr; }
+  .manual-sections fieldset.reason-fields { grid-column: auto; }
+  .reason-fields .manual-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .manual-modal-foot { align-items: stretch; flex-direction: column; }
+  .manual-modal-foot > div, .manual-modal-foot button { flex: 1; }
 }

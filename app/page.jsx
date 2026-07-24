@@ -17,6 +17,8 @@ const Icon = ({ name, size = 20 }) => {
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" /></>,
     file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 13h8M8 17h5" /></>,
     upload: <><path d="M12 16V4M7 9l5-5 5 5" /><path d="M5 20h14" /></>,
+    edit: <><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z" /></>,
+    close: <><path d="M18 6 6 18M6 6l12 12" /></>,
     sheet: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 13h8M8 17h8M8 13v4M12 13v4" /></>,
     pdf: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 15h1a2 2 0 0 0 0-4H8v6M13 17v-6h2a2 2 0 0 1 0 4h-2M18 11h3M18 14h2" /></>,
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
@@ -78,12 +80,155 @@ const AttendanceRing = ({ rate }) => (
 
 const getUnitRate = (unit) => (unit.total ? (unit.present / unit.total) * 100 : 0);
 
+const getManualForm = (record) => {
+  const units = Object.fromEntries(record.units.map((unit) => [unit.name, unit]));
+  return {
+    date: record.date,
+    v0Total: units["ACM V0"]?.total ?? 0,
+    v0Present: units["ACM V0"]?.present ?? 0,
+    v5Total: units["ACM V5"]?.total ?? 0,
+    v5Present: units["ACM V5"]?.present ?? 0,
+    ackTotal: units.ACK?.total ?? 0,
+    ackPresent: units.ACK?.present ?? 0,
+    dayTotal: record.shifts.dayTotal,
+    dayAbsent: record.shifts.dayAbsent,
+    nightTotal: record.shifts.nightTotal,
+    nightAbsent: record.shifts.nightAbsent,
+    ...record.reasons,
+  };
+};
+
+const manualFields = {
+  units: [
+    ["v0Total", "ACM V0 재적"], ["v0Present", "ACM V0 출근"],
+    ["v5Total", "ACM V5 재적"], ["v5Present", "ACM V5 출근"],
+    ["ackTotal", "ACK 재적"], ["ackPresent", "ACK 출근"],
+  ],
+  shifts: [
+    ["dayTotal", "주간 재적"], ["dayAbsent", "주간 미출근"],
+    ["nightTotal", "야간 재적"], ["nightAbsent", "야간 미출근"],
+  ],
+  reasons: [
+    ["unplanned", "일반 결근"], ["approved", "휴가 신청"],
+    ["late", "지각"], ["earlyLeave", "조퇴"],
+    ["maternity", "출산 휴가"], ["transfer", "부서 이동"], ["resigned", "퇴사"],
+  ],
+};
+
+const ManualEntryModal = ({ record, onClose, onSave }) => {
+  const [form, setForm] = useState(() => getManualForm(record));
+  const [error, setError] = useState("");
+  const numberValue = (key) => Math.max(0, Number(form[key]) || 0);
+  const total = numberValue("v0Total") + numberValue("v5Total") + numberValue("ackTotal");
+  const present = numberValue("v0Present") + numberValue("v5Present") + numberValue("ackPresent");
+  const absent = Math.max(0, total - present);
+  const rate = total ? (present / total) * 100 : 0;
+
+  const update = (key, value) => {
+    setForm((current) => ({ ...current, [key]: value }));
+    setError("");
+  };
+
+  const submit = (event) => {
+    event.preventDefault();
+    const invalidUnit = [
+      ["v0Total", "v0Present", "ACM V0"],
+      ["v5Total", "v5Present", "ACM V5"],
+      ["ackTotal", "ackPresent", "ACK"],
+    ].find(([totalKey, presentKey]) => numberValue(presentKey) > numberValue(totalKey));
+    if (invalidUnit) {
+      setError(`${invalidUnit[2]} 출근 인원은 재적 인원보다 클 수 없습니다.`);
+      return;
+    }
+    if (numberValue("dayAbsent") > numberValue("dayTotal") || numberValue("nightAbsent") > numberValue("nightTotal")) {
+      setError("주간·야간 미출근 인원은 각 재적 인원보다 클 수 없습니다.");
+      return;
+    }
+    if (numberValue("dayTotal") + numberValue("nightTotal") !== total) {
+      setError(`주간·야간 재적 합계가 전체 재적 ${total}명과 같아야 합니다.`);
+      return;
+    }
+
+    const date = form.date;
+    onSave({
+      sheet: `${date.slice(8, 10)}.${date.slice(5, 7)}`,
+      date,
+      total,
+      present,
+      absent,
+      rate: Number(rate.toFixed(1)),
+      units: [
+        { name: "ACM V0", total: numberValue("v0Total"), present: numberValue("v0Present") },
+        { name: "ACM V5", total: numberValue("v5Total"), present: numberValue("v5Present") },
+        { name: "ACK", total: numberValue("ackTotal"), present: numberValue("ackPresent") },
+      ],
+      shifts: {
+        dayTotal: numberValue("dayTotal"),
+        dayAbsent: numberValue("dayAbsent"),
+        nightTotal: numberValue("nightTotal"),
+        nightAbsent: numberValue("nightAbsent"),
+      },
+      reasons: Object.fromEntries(manualFields.reasons.map(([key]) => [key, numberValue(key)])),
+    });
+  };
+
+  const renderFields = (fields) => fields.map(([key, label]) => (
+    <label className="manual-field" key={key}>
+      <span>{label}</span>
+      <input
+        type="number"
+        min="0"
+        step="1"
+        inputMode="numeric"
+        value={form[key]}
+        onChange={(event) => update(key, event.target.value)}
+      />
+    </label>
+  ));
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="manual-modal" role="dialog" aria-modal="true" aria-labelledby="manual-title">
+        <header className="manual-modal-head">
+          <div><p className="eyebrow">MANUAL ENTRY</p><h2 id="manual-title">출근 데이터 직접 입력</h2></div>
+          <button type="button" aria-label="입력 창 닫기" onClick={onClose}><Icon name="close" /></button>
+        </header>
+        <form onSubmit={submit}>
+          <div className="manual-date-row">
+            <label className="manual-field">
+              <span>기준일</span>
+              <input type="date" required value={form.date} onChange={(event) => update("date", event.target.value)} />
+            </label>
+            <div className="manual-summary" aria-live="polite">
+              <span>재적 <strong>{total}</strong>명</span>
+              <span>출근 <strong>{present}</strong>명</span>
+              <span>미출근 <strong>{absent}</strong>명</span>
+              <span>출근율 <strong>{rate.toFixed(1)}</strong>%</span>
+            </div>
+          </div>
+          <div className="manual-sections">
+            <fieldset><legend>조직별 인원</legend><div className="manual-grid">{renderFields(manualFields.units)}</div></fieldset>
+            <fieldset><legend>주간 · 야간</legend><div className="manual-grid">{renderFields(manualFields.shifts)}</div></fieldset>
+            <fieldset className="reason-fields"><legend>근태 사유</legend><div className="manual-grid">{renderFields(manualFields.reasons)}</div></fieldset>
+          </div>
+          {error && <p className="manual-error" role="alert">{error}</p>}
+          <footer className="manual-modal-foot">
+            <p>같은 날짜가 있으면 해당 데이터가 수정되고, 새 날짜는 목록에 추가됩니다.</p>
+            <div><button type="button" className="cancel" onClick={onClose}>취소</button><button type="submit" className="save">데이터 저장</button></div>
+          </footer>
+        </form>
+      </section>
+    </div>
+  );
+};
+
 export default function AttendanceDashboard() {
   const [records, setRecords] = useState(attendanceData);
   const [selectedDate, setSelectedDate] = useState(attendanceData.at(-1).date);
   const [sourceName, setSourceName] = useState("7월 인력 현황.xlsx");
   const [importState, setImportState] = useState({ type: "", message: "" });
   const [reportState, setReportState] = useState({ type: "", message: "" });
+  const [manualOpen, setManualOpen] = useState(false);
   const fileInputRef = useRef(null);
   const reportRef = useRef(null);
 
@@ -200,6 +345,26 @@ export default function AttendanceDashboard() {
     }
   };
 
+  const saveManualRecord = (record) => {
+    const nextRecords = [...records.filter((item) => item.date !== record.date), record]
+      .sort((a, b) => a.date.localeCompare(b.date));
+    const nextSourceName = sourceName.includes("직접 수정") ? sourceName : `${sourceName} · 직접 수정`;
+    setRecords(nextRecords);
+    setSelectedDate(record.date);
+    setSourceName(nextSourceName);
+    setManualOpen(false);
+    let savedForRefresh = true;
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ records: nextRecords, sourceName: nextSourceName }));
+    } catch {
+      savedForRefresh = false;
+    }
+    setImportState({
+      type: "success",
+      message: `${formatDate(record.date)} 데이터를 저장했습니다.${savedForRefresh ? "" : " 현재 실행 중인 화면에만 적용됩니다."}`,
+    });
+  };
+
   return (
     <>
     <main className="app-shell">
@@ -236,6 +401,15 @@ export default function AttendanceDashboard() {
             >
               <Icon name="upload" size={17} />
               <span>데이터 파일 선택</span>
+            </button>
+            <button
+              className="manual-button"
+              type="button"
+              aria-label="출근 데이터 직접 입력"
+              onClick={() => setManualOpen(true)}
+            >
+              <Icon name="edit" size={17} />
+              <span>직접 입력</span>
             </button>
             <input
               ref={fileInputRef}
@@ -399,6 +573,7 @@ export default function AttendanceDashboard() {
         </div>
       </section>
     </main>
+    {manualOpen && <ManualEntryModal record={current} onClose={() => setManualOpen(false)} onSave={saveManualRecord} />}
     <section ref={reportRef} className="pdf-report" aria-hidden="true">
       <header className="pdf-report-head">
         <div>
