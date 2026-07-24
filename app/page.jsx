@@ -1,0 +1,239 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import attendanceData from "./attendance-data.json";
+
+const Icon = ({ name, size = 20 }) => {
+  const paths = {
+    grid: <><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></>,
+    users: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>,
+    chart: <><path d="M3 3v18h18" /><path d="m7 16 4-5 4 3 5-7" /></>,
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" /></>,
+    file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 13h8M8 17h5" /></>,
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
+    arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
+  };
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
+};
+
+const formatDate = (date) =>
+  new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  }).format(new Date(`${date}T00:00:00`));
+
+const MiniTrend = ({ records, selectedIndex }) => {
+  const points = records.slice(Math.max(0, selectedIndex - 9), selectedIndex + 1);
+  const width = 660;
+  const height = 210;
+  const pad = 26;
+  const min = Math.min(...points.map((d) => d.rate)) - 1;
+  const max = Math.max(...points.map((d) => d.rate)) + 1;
+  const x = (i) => pad + (i * (width - pad * 2)) / Math.max(points.length - 1, 1);
+  const y = (v) => height - pad - ((v - min) / Math.max(max - min, 1)) * (height - pad * 2);
+  const line = points.map((d, i) => `${x(i)},${y(d.rate)}`).join(" ");
+  const area = `${pad},${height - pad} ${line} ${x(points.length - 1)},${height - pad}`;
+
+  return (
+    <div className="trend-wrap">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="최근 출근율 추이">
+        {[0, 1, 2, 3].map((lineIndex) => {
+          const lineY = pad + (lineIndex * (height - pad * 2)) / 3;
+          return <line key={lineIndex} x1={pad} x2={width - pad} y1={lineY} y2={lineY} className="grid-line" />;
+        })}
+        <polygon points={area} className="trend-area" />
+        <polyline points={line} className="trend-line" />
+        {points.map((d, i) => (
+          <g key={d.date}>
+            <circle cx={x(i)} cy={y(d.rate)} r={i === points.length - 1 ? 5 : 3} className={i === points.length - 1 ? "trend-dot active" : "trend-dot"} />
+            {(i === 0 || i === points.length - 1 || i % 2 === 0) && (
+              <text x={x(i)} y={height - 5} textAnchor="middle" className="axis-label">{d.sheet}</text>
+            )}
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+};
+
+const AttendanceRing = ({ rate }) => (
+  <div className="ring" style={{ "--rate": `${rate * 3.6}deg` }}>
+    <div>
+      <strong>{rate.toFixed(1)}%</strong>
+      <span>출근율</span>
+    </div>
+  </div>
+);
+
+export default function AttendanceDashboard() {
+  const [selectedDate, setSelectedDate] = useState(attendanceData.at(-1).date);
+  const selectedIndex = attendanceData.findIndex((record) => record.date === selectedDate);
+  const current = attendanceData[selectedIndex];
+  const previous = attendanceData[Math.max(0, selectedIndex - 1)];
+  const delta = Number((current.rate - previous.rate).toFixed(1));
+
+  const monthRecords = useMemo(
+    () => attendanceData.filter((record) => record.date.slice(0, 7) === current.date.slice(0, 7)),
+    [current.date],
+  );
+  const monthAverage = monthRecords.reduce((sum, item) => sum + item.rate, 0) / monthRecords.length;
+  const strongestUnit = [...current.units].sort(
+    (a, b) => b.present / b.total - a.present / a.total,
+  )[0];
+  const criticalUnit = [...current.units].sort(
+    (a, b) => a.present / a.total - b.present / b.total,
+  )[0];
+  const unitAccent = { "ACM V0": "#1f4d3a", "ACM V5": "#d8ff3e", ACK: "#77a8ff" };
+
+  return (
+    <main className="app-shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="brand-mark">A</span>
+          <div><strong>ACM · ACK</strong><small>WORKFORCE CONTROL</small></div>
+        </div>
+        <nav>
+          <a className="active" href="#overview"><Icon name="grid" />일일 현황</a>
+          <a href="#units"><Icon name="users" />조직별 현황</a>
+          <a href="#trend"><Icon name="chart" />출근 추이</a>
+          <a href="#reasons"><Icon name="calendar" />근태 사유</a>
+        </nav>
+        <div className="source-card">
+          <Icon name="file" />
+          <div><span>데이터 소스</span><strong>7월 인력 현황.xlsx</strong><small>{attendanceData.length}개 근무일 반영</small></div>
+        </div>
+        <div className="sidebar-foot">ACM People Operations<br /><span>Internal dashboard</span></div>
+      </aside>
+
+      <section className="content">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">DAILY ATTENDANCE</p>
+            <h1>일일 출근 현황</h1>
+          </div>
+          <div className="top-actions">
+            <label className="date-picker">
+              <Icon name="calendar" />
+              <span className="sr-only">기준일 선택</span>
+              <select value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)}>
+                {[...attendanceData].reverse().map((record) => (
+                  <option key={record.date} value={record.date}>{formatDate(record.date)}</option>
+                ))}
+              </select>
+            </label>
+            <button className="icon-button" aria-label="알림"><Icon name="bell" /></button>
+            <div className="profile">HR</div>
+          </div>
+        </header>
+
+        <div className="dashboard" id="overview">
+          <section className="hero-card">
+            <div className="hero-copy">
+              <p className="eyebrow light">{formatDate(current.date)} · 확정 현황</p>
+              <h2><span>{current.present}</span>명이<br />오늘 함께합니다.</h2>
+              <p>재적인원 {current.total}명 중 {current.present}명이 출근했습니다. 미출근 인원은 {current.absent}명입니다.</p>
+              <div className="hero-tags">
+                <span>월 평균 {monthAverage.toFixed(1)}%</span>
+                <span className={delta >= 0 ? "positive" : "negative"}>전일 대비 {delta >= 0 ? "+" : ""}{delta}%p</span>
+              </div>
+            </div>
+            <AttendanceRing rate={current.rate} />
+          </section>
+
+          <section className="kpi-grid">
+            <article className="kpi-card primary">
+              <span>출근 인원</span><strong>{current.present}<small>명</small></strong>
+              <p>Present employees</p>
+            </article>
+            <article className="kpi-card">
+              <span>재적 인원</span><strong>{current.total}<small>명</small></strong>
+              <p>Total workforce</p>
+            </article>
+            <article className="kpi-card warning">
+              <span>미출근</span><strong>{current.absent}<small>명</small></strong>
+              <p>Absent today</p>
+            </article>
+            <article className="kpi-card">
+              <span>출근율</span><strong>{current.rate.toFixed(1)}<small>%</small></strong>
+              <p className={delta >= 0 ? "up" : "down"}>{delta >= 0 ? "↑" : "↓"} {Math.abs(delta)}%p vs. 전일</p>
+            </article>
+          </section>
+
+          <section className="panel trend-panel" id="trend">
+            <div className="panel-head">
+              <div><p className="eyebrow">ATTENDANCE TREND</p><h3>최근 출근율 추이</h3></div>
+              <div className="trend-stat"><span>선택일</span><strong>{current.rate.toFixed(1)}%</strong></div>
+            </div>
+            <MiniTrend records={attendanceData} selectedIndex={selectedIndex} />
+          </section>
+
+          <section className="panel units-panel" id="units">
+            <div className="panel-head">
+              <div><p className="eyebrow">BY ORGANIZATION</p><h3>조직별 출근 현황</h3></div>
+              <span className="status-pill">LIVE SNAPSHOT</span>
+            </div>
+            <div className="unit-table">
+              <div className="unit-row table-head"><span>조직</span><span>출근 / 재적</span><span>미출근</span><span>출근율</span></div>
+              {current.units.map((unit) => {
+                const rate = (unit.present / unit.total) * 100;
+                return (
+                  <div className="unit-row" key={unit.name}>
+                    <span className="unit-name"><i style={{ background: unitAccent[unit.name] }} />{unit.name}</span>
+                    <span><strong>{unit.present}</strong> / {unit.total}명</span>
+                    <span>{unit.total - unit.present}명</span>
+                    <span className="unit-rate"><b>{rate.toFixed(1)}%</b><i><em style={{ width: `${rate}%`, background: unitAccent[unit.name] }} /></i></span>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="panel shift-panel">
+            <div className="panel-head">
+              <div><p className="eyebrow">SHIFT BALANCE</p><h3>주간 · 야간 운영</h3></div>
+            </div>
+            {[
+              { name: "주간 근무", total: current.shifts.dayTotal, absent: current.shifts.dayAbsent, color: "#d8ff3e" },
+              { name: "야간 근무", total: current.shifts.nightTotal, absent: current.shifts.nightAbsent, color: "#77a8ff" },
+            ].map((shift) => {
+              const present = shift.total - shift.absent;
+              const rate = shift.total ? (present / shift.total) * 100 : 0;
+              return (
+                <div className="shift-row" key={shift.name}>
+                  <div className="shift-title"><span>{shift.name}</span><strong>{present}<small> / {shift.total}명</small></strong></div>
+                  <div className="bar"><span style={{ width: `${rate}%`, background: shift.color }} /></div>
+                  <p>미출근 {shift.absent}명 · 출근율 {rate.toFixed(1)}%</p>
+                </div>
+              );
+            })}
+          </section>
+
+          <section className="panel reasons-panel" id="reasons">
+            <div className="panel-head">
+              <div><p className="eyebrow">ATTENDANCE REASONS</p><h3>근태 사유</h3></div>
+              <span className="total-absence">총 {current.absent}명</span>
+            </div>
+            <div className="reason-grid">
+              <div className="reason-main"><strong>{current.reasons.unplanned}</strong><span>일반 결근</span><small>Unplanned absence</small></div>
+              <div><strong>{current.reasons.approved}</strong><span>휴가 신청</span></div>
+              <div><strong>{current.reasons.late}</strong><span>지각</span></div>
+              <div><strong>{current.reasons.earlyLeave}</strong><span>조퇴</span></div>
+            </div>
+          </section>
+
+          <section className="insight-card">
+            <span className="insight-index">01</span>
+            <div>
+              <p className="eyebrow light">TODAY&apos;S NOTE</p>
+              <h3>{strongestUnit.name} 출근율이 가장 안정적입니다.</h3>
+              <p>{strongestUnit.name}은(는) {((strongestUnit.present / strongestUnit.total) * 100).toFixed(1)}% 출근율을 기록했습니다. {criticalUnit.name} 미출근 {criticalUnit.total - criticalUnit.present}명을 우선 확인해 주세요.</p>
+            </div>
+            <a href="#units" aria-label="조직별 현황 보기"><Icon name="arrow" /></a>
+          </section>
+        </div>
+      </section>
+    </main>
+  );
+}

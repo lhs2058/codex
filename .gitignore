@@ -1,0 +1,8 @@
+.next/
+node_modules/
+.pnpm-store/
+.runtime/
+*.log
+*.xlsx
+.agents/
+웹페이지_기초_가이드.md

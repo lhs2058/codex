@@ -1,0 +1,1322 @@
+[
+  {
+    "sheet": "01.06",
+    "date": "2026-06-01",
+    "total": 399,
+    "present": 375,
+    "absent": 24,
+    "rate": 94.0,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 252,
+        "present": 236
+      },
+      {
+        "name": "ACM V5",
+        "total": 137,
+        "present": 130
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 9
+      }
+    ],
+    "shifts": {
+      "dayTotal": 235,
+      "nightTotal": 164,
+      "dayAbsent": 14,
+      "nightAbsent": 8
+    },
+    "reasons": {
+      "unplanned": 8,
+      "approved": 14,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 1,
+      "resigned": 7
+    }
+  },
+  {
+    "sheet": "02.06",
+    "date": "2026-06-02",
+    "total": 402,
+    "present": 383,
+    "absent": 19,
+    "rate": 95.3,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 252,
+        "present": 236
+      },
+      {
+        "name": "ACM V5",
+        "total": 140,
+        "present": 138
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 9
+      }
+    ],
+    "shifts": {
+      "dayTotal": 235,
+      "nightTotal": 167,
+      "dayAbsent": 9,
+      "nightAbsent": 10
+    },
+    "reasons": {
+      "unplanned": 7,
+      "approved": 12,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 2
+    }
+  },
+  {
+    "sheet": "03.06",
+    "date": "2026-06-03",
+    "total": 398,
+    "present": 378,
+    "absent": 20,
+    "rate": 95.0,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 250,
+        "present": 235
+      },
+      {
+        "name": "ACM V5",
+        "total": 138,
+        "present": 134
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 9
+      }
+    ],
+    "shifts": {
+      "dayTotal": 230,
+      "nightTotal": 168,
+      "dayAbsent": 12,
+      "nightAbsent": 8
+    },
+    "reasons": {
+      "unplanned": 12,
+      "approved": 5,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 4
+    }
+  },
+  {
+    "sheet": "04.06",
+    "date": "2026-06-04",
+    "total": 398,
+    "present": 374,
+    "absent": 24,
+    "rate": 94.0,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 250,
+        "present": 234
+      },
+      {
+        "name": "ACM V5",
+        "total": 138,
+        "present": 131
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 9
+      }
+    ],
+    "shifts": {
+      "dayTotal": 230,
+      "nightTotal": 168,
+      "dayAbsent": 15,
+      "nightAbsent": 9
+    },
+    "reasons": {
+      "unplanned": 9,
+      "approved": 11,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "05.06",
+    "date": "2026-06-05",
+    "total": 388,
+    "present": 365,
+    "absent": 23,
+    "rate": 94.1,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 249,
+        "present": 234
+      },
+      {
+        "name": "ACM V5",
+        "total": 129,
+        "present": 122
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 9
+      }
+    ],
+    "shifts": {
+      "dayTotal": 225,
+      "nightTotal": 163,
+      "dayAbsent": 11,
+      "nightAbsent": 12
+    },
+    "reasons": {
+      "unplanned": 8,
+      "approved": 10,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "06.06",
+    "date": "2026-06-06",
+    "total": 389,
+    "present": 366,
+    "absent": 23,
+    "rate": 94.1,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 250,
+        "present": 236
+      },
+      {
+        "name": "ACM V5",
+        "total": 129,
+        "present": 121
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 9
+      }
+    ],
+    "shifts": {
+      "dayTotal": 227,
+      "nightTotal": 162,
+      "dayAbsent": 12,
+      "nightAbsent": 11
+    },
+    "reasons": {
+      "unplanned": 9,
+      "approved": 8,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 0
+    }
+  },
+  {
+    "sheet": "08.06",
+    "date": "2026-06-08",
+    "total": 382,
+    "present": 358,
+    "absent": 24,
+    "rate": 93.7,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 247,
+        "present": 228
+      },
+      {
+        "name": "ACM V5",
+        "total": 125,
+        "present": 120
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 223,
+      "nightTotal": 159,
+      "dayAbsent": 12,
+      "nightAbsent": 9
+    },
+    "reasons": {
+      "unplanned": 15,
+      "approved": 9,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 6
+    }
+  },
+  {
+    "sheet": "09.06",
+    "date": "2026-06-09",
+    "total": 384,
+    "present": 366,
+    "absent": 18,
+    "rate": 95.3,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 249,
+        "present": 233
+      },
+      {
+        "name": "ACM V5",
+        "total": 125,
+        "present": 123
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 222,
+      "nightTotal": 162,
+      "dayAbsent": 12,
+      "nightAbsent": 6
+    },
+    "reasons": {
+      "unplanned": 14,
+      "approved": 4,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "10.06",
+    "date": "2026-06-10",
+    "total": 384,
+    "present": 369,
+    "absent": 15,
+    "rate": 96.1,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 249,
+        "present": 235
+      },
+      {
+        "name": "ACM V5",
+        "total": 125,
+        "present": 124
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 223,
+      "nightTotal": 161,
+      "dayAbsent": 11,
+      "nightAbsent": 5
+    },
+    "reasons": {
+      "unplanned": 10,
+      "approved": 4,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 4
+    }
+  },
+  {
+    "sheet": "11.06",
+    "date": "2026-06-11",
+    "total": 380,
+    "present": 359,
+    "absent": 21,
+    "rate": 94.5,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 244,
+        "present": 228
+      },
+      {
+        "name": "ACM V5",
+        "total": 126,
+        "present": 121
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 221,
+      "nightTotal": 159,
+      "dayAbsent": 14,
+      "nightAbsent": 8
+    },
+    "reasons": {
+      "unplanned": 11,
+      "approved": 9,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 5
+    }
+  },
+  {
+    "sheet": "12.06",
+    "date": "2026-06-12",
+    "total": 382,
+    "present": 363,
+    "absent": 19,
+    "rate": 95.0,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 244,
+        "present": 229
+      },
+      {
+        "name": "ACM V5",
+        "total": 128,
+        "present": 124
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 223,
+      "nightTotal": 159,
+      "dayAbsent": 12,
+      "nightAbsent": 8
+    },
+    "reasons": {
+      "unplanned": 9,
+      "approved": 9,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 0
+    }
+  },
+  {
+    "sheet": "13.06",
+    "date": "2026-06-13",
+    "total": 381,
+    "present": 363,
+    "absent": 18,
+    "rate": 95.3,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 244,
+        "present": 230
+      },
+      {
+        "name": "ACM V5",
+        "total": 127,
+        "present": 123
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 222,
+      "nightTotal": 159,
+      "dayAbsent": 11,
+      "nightAbsent": 7
+    },
+    "reasons": {
+      "unplanned": 8,
+      "approved": 9,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "15.06",
+    "date": "2026-06-15",
+    "total": 379,
+    "present": 362,
+    "absent": 17,
+    "rate": 95.5,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 243,
+        "present": 228
+      },
+      {
+        "name": "ACM V5",
+        "total": 126,
+        "present": 124
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 220,
+      "nightTotal": 159,
+      "dayAbsent": 14,
+      "nightAbsent": 3
+    },
+    "reasons": {
+      "unplanned": 7,
+      "approved": 9,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 1,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "01.07",
+    "date": "2026-07-01",
+    "total": 379,
+    "present": 367,
+    "absent": 12,
+    "rate": 96.8,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 241,
+        "present": 232
+      },
+      {
+        "name": "ACM V5",
+        "total": 128,
+        "present": 125
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 219,
+      "nightTotal": 160,
+      "dayAbsent": 10,
+      "nightAbsent": 2
+    },
+    "reasons": {
+      "unplanned": 7,
+      "approved": 5,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 2,
+      "resigned": 2
+    }
+  },
+  {
+    "sheet": "02.07",
+    "date": "2026-07-02",
+    "total": 383,
+    "present": 370,
+    "absent": 13,
+    "rate": 96.6,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 241,
+        "present": 232
+      },
+      {
+        "name": "ACM V5",
+        "total": 132,
+        "present": 128
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 222,
+      "nightTotal": 161,
+      "dayAbsent": 10,
+      "nightAbsent": 3
+    },
+    "reasons": {
+      "unplanned": 5,
+      "approved": 8,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 0
+    }
+  },
+  {
+    "sheet": "03.07",
+    "date": "2026-07-03",
+    "total": 387,
+    "present": 371,
+    "absent": 16,
+    "rate": 95.9,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 244,
+        "present": 236
+      },
+      {
+        "name": "ACM V5",
+        "total": 133,
+        "present": 125
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 226,
+      "nightTotal": 161,
+      "dayAbsent": 11,
+      "nightAbsent": 5
+    },
+    "reasons": {
+      "unplanned": 6,
+      "approved": 10,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "04.07",
+    "date": "2026-07-04",
+    "total": 389,
+    "present": 386,
+    "absent": 3,
+    "rate": 99.2,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 245,
+        "present": 242
+      },
+      {
+        "name": "ACM V5",
+        "total": 134,
+        "present": 134
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 229,
+      "nightTotal": 160,
+      "dayAbsent": 3,
+      "nightAbsent": 0
+    },
+    "reasons": {
+      "unplanned": 3,
+      "approved": 0,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "06.07",
+    "date": "2026-07-06",
+    "total": 390,
+    "present": 384,
+    "absent": 6,
+    "rate": 98.5,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 245,
+        "present": 240
+      },
+      {
+        "name": "ACM V5",
+        "total": 135,
+        "present": 134
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 229,
+      "nightTotal": 161,
+      "dayAbsent": 5,
+      "nightAbsent": 1
+    },
+    "reasons": {
+      "unplanned": 0,
+      "approved": 6,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 2,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "07.07",
+    "date": "2026-07-07",
+    "total": 391,
+    "present": 374,
+    "absent": 17,
+    "rate": 95.7,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 247,
+        "present": 237
+      },
+      {
+        "name": "ACM V5",
+        "total": 134,
+        "present": 127
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 228,
+      "nightTotal": 163,
+      "dayAbsent": 7,
+      "nightAbsent": 10
+    },
+    "reasons": {
+      "unplanned": 3,
+      "approved": 14,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 4
+    }
+  },
+  {
+    "sheet": "08.07",
+    "date": "2026-07-08",
+    "total": 395,
+    "present": 377,
+    "absent": 18,
+    "rate": 95.4,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 249,
+        "present": 238
+      },
+      {
+        "name": "ACM V5",
+        "total": 136,
+        "present": 129
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 234,
+      "nightTotal": 161,
+      "dayAbsent": 10,
+      "nightAbsent": 6
+    },
+    "reasons": {
+      "unplanned": 7,
+      "approved": 10,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "09.07",
+    "date": "2026-07-09",
+    "total": 400,
+    "present": 388,
+    "absent": 12,
+    "rate": 97.0,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 252,
+        "present": 245
+      },
+      {
+        "name": "ACM V5",
+        "total": 138,
+        "present": 133
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 237,
+      "nightTotal": 163,
+      "dayAbsent": 8,
+      "nightAbsent": 4
+    },
+    "reasons": {
+      "unplanned": 6,
+      "approved": 6,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 0
+    }
+  },
+  {
+    "sheet": "10.07",
+    "date": "2026-07-10",
+    "total": 403,
+    "present": 385,
+    "absent": 18,
+    "rate": 95.5,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 251,
+        "present": 239
+      },
+      {
+        "name": "ACM V5",
+        "total": 142,
+        "present": 136
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 240,
+      "nightTotal": 163,
+      "dayAbsent": 10,
+      "nightAbsent": 8
+    },
+    "reasons": {
+      "unplanned": 7,
+      "approved": 11,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 7
+    }
+  },
+  {
+    "sheet": "11.07",
+    "date": "2026-07-11",
+    "total": 405,
+    "present": 378,
+    "absent": 27,
+    "rate": 93.3,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 252,
+        "present": 233
+      },
+      {
+        "name": "ACM V5",
+        "total": 143,
+        "present": 135
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 243,
+      "nightTotal": 162,
+      "dayAbsent": 17,
+      "nightAbsent": 10
+    },
+    "reasons": {
+      "unplanned": 17,
+      "approved": 10,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "13.07",
+    "date": "2026-07-13",
+    "total": 409,
+    "present": 382,
+    "absent": 27,
+    "rate": 93.4,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 252,
+        "present": 231
+      },
+      {
+        "name": "ACM V5",
+        "total": 147,
+        "present": 141
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 249,
+      "nightTotal": 160,
+      "dayAbsent": 18,
+      "nightAbsent": 9
+    },
+    "reasons": {
+      "unplanned": 15,
+      "approved": 12,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 6
+    }
+  },
+  {
+    "sheet": "14.07",
+    "date": "2026-07-14",
+    "total": 415,
+    "present": 396,
+    "absent": 19,
+    "rate": 95.4,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 254,
+        "present": 240
+      },
+      {
+        "name": "ACM V5",
+        "total": 151,
+        "present": 146
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 244,
+      "nightTotal": 171,
+      "dayAbsent": 15,
+      "nightAbsent": 4
+    },
+    "reasons": {
+      "unplanned": 14,
+      "approved": 5,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 2,
+      "resigned": 0
+    }
+  },
+  {
+    "sheet": "15.07",
+    "date": "2026-07-15",
+    "total": 418,
+    "present": 394,
+    "absent": 24,
+    "rate": 94.3,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 256,
+        "present": 239
+      },
+      {
+        "name": "ACM V5",
+        "total": 152,
+        "present": 145
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 247,
+      "nightTotal": 171,
+      "dayAbsent": 17,
+      "nightAbsent": 7
+    },
+    "reasons": {
+      "unplanned": 15,
+      "approved": 9,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 7
+    }
+  },
+  {
+    "sheet": "16.07",
+    "date": "2026-07-16",
+    "total": 413,
+    "present": 386,
+    "absent": 27,
+    "rate": 93.5,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 252,
+        "present": 235
+      },
+      {
+        "name": "ACM V5",
+        "total": 151,
+        "present": 141
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 245,
+      "nightTotal": 168,
+      "dayAbsent": 17,
+      "nightAbsent": 10
+    },
+    "reasons": {
+      "unplanned": 11,
+      "approved": 16,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 8
+    }
+  },
+  {
+    "sheet": "17.07",
+    "date": "2026-07-17",
+    "total": 413,
+    "present": 394,
+    "absent": 19,
+    "rate": 95.4,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 252,
+        "present": 241
+      },
+      {
+        "name": "ACM V5",
+        "total": 151,
+        "present": 143
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 246,
+      "nightTotal": 167,
+      "dayAbsent": 16,
+      "nightAbsent": 3
+    },
+    "reasons": {
+      "unplanned": 9,
+      "approved": 10,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 3
+    }
+  },
+  {
+    "sheet": "18.07",
+    "date": "2026-07-18",
+    "total": 412,
+    "present": 369,
+    "absent": 43,
+    "rate": 89.6,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 251,
+        "present": 228
+      },
+      {
+        "name": "ACM V5",
+        "total": 151,
+        "present": 131
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 245,
+      "nightTotal": 167,
+      "dayAbsent": 34,
+      "nightAbsent": 9
+    },
+    "reasons": {
+      "unplanned": 24,
+      "approved": 19,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 1
+    }
+  },
+  {
+    "sheet": "20.07",
+    "date": "2026-07-20",
+    "total": 409,
+    "present": 379,
+    "absent": 30,
+    "rate": 92.7,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 250,
+        "present": 228
+      },
+      {
+        "name": "ACM V5",
+        "total": 149,
+        "present": 141
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 239,
+      "nightTotal": 170,
+      "dayAbsent": 20,
+      "nightAbsent": 10
+    },
+    "reasons": {
+      "unplanned": 15,
+      "approved": 15,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 1,
+      "transfer": 0,
+      "resigned": 2
+    }
+  },
+  {
+    "sheet": "21.07",
+    "date": "2026-07-21",
+    "total": 410,
+    "present": 381,
+    "absent": 29,
+    "rate": 92.9,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 252,
+        "present": 233
+      },
+      {
+        "name": "ACM V5",
+        "total": 148,
+        "present": 138
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 240,
+      "nightTotal": 170,
+      "dayAbsent": 17,
+      "nightAbsent": 12
+    },
+    "reasons": {
+      "unplanned": 12,
+      "approved": 17,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 4
+    }
+  },
+  {
+    "sheet": "22.07",
+    "date": "2026-07-22",
+    "total": 411,
+    "present": 392,
+    "absent": 19,
+    "rate": 95.4,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 252,
+        "present": 242
+      },
+      {
+        "name": "ACM V5",
+        "total": 149,
+        "present": 140
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 241,
+      "nightTotal": 170,
+      "dayAbsent": 12,
+      "nightAbsent": 7
+    },
+    "reasons": {
+      "unplanned": 15,
+      "approved": 4,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 3
+    }
+  },
+  {
+    "sheet": "23.07",
+    "date": "2026-07-23",
+    "total": 415,
+    "present": 396,
+    "absent": 19,
+    "rate": 95.4,
+    "units": [
+      {
+        "name": "ACM V0",
+        "total": 254,
+        "present": 241
+      },
+      {
+        "name": "ACM V5",
+        "total": 151,
+        "present": 145
+      },
+      {
+        "name": "ACK",
+        "total": 10,
+        "present": 10
+      }
+    ],
+    "shifts": {
+      "dayTotal": 244,
+      "nightTotal": 171,
+      "dayAbsent": 12,
+      "nightAbsent": 7
+    },
+    "reasons": {
+      "unplanned": 12,
+      "approved": 7,
+      "earlyLeave": 0,
+      "late": 0,
+      "maternity": 0,
+      "transfer": 0,
+      "resigned": 0
+    }
+  }
+]
