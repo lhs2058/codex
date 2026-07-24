@@ -6,7 +6,10 @@ output/
 node_modules/
 .pnpm-store/
 .runtime/
+.vercel/
 *.log
 *.xlsx
 .agents/
 웹페이지_기초_가이드.md
+
+.env*

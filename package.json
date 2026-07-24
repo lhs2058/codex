@@ -7,6 +7,7 @@
     "dev": "vinext dev",
     "build": "vinext build && node scripts/copy-hosting.mjs",
     "build:pages": "vite build --config vite.pages.config.mjs",
+    "build:vercel": "vite build --config vite.pages.config.mjs --base /",
     "build:standalone": "vite build --config vite.standalone.config.mjs && node scripts/package-standalone.mjs",
     "preview:pages": "vite preview --config vite.pages.config.mjs --host 127.0.0.1 --port 4173",
     "start": "vinext start"
@@ -23,6 +24,7 @@
     "@vitejs/plugin-react": "6.0.0",
     "@vitejs/plugin-rsc": "0.5.26",
     "react-server-dom-webpack": "19.2.6",
+    "supabase": "2.109.1",
     "vinext": "1.0.0-beta.3",
     "vite": "8.1.5",
     "vite-plugin-singlefile": "2.3.3"
