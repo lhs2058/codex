@@ -1,7 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import readExcelFile from "read-excel-file/browser";
 import attendanceData from "./attendance-data.json";
+import { parseAttendanceSheets } from "./attendance-import.js";
+
+const STORAGE_KEY = "acm-attendance-import";
 
 const Icon = ({ name, size = 20 }) => {
   const paths = {
@@ -10,6 +14,7 @@ const Icon = ({ name, size = 20 }) => {
     chart: <><path d="M3 3v18h18" /><path d="m7 16 4-5 4 3 5-7" /></>,
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" /></>,
     file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 13h8M8 17h5" /></>,
+    upload: <><path d="M12 16V4M7 9l5-5 5 5" /><path d="M5 20h14" /></>,
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
     arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
   };
@@ -67,23 +72,85 @@ const AttendanceRing = ({ rate }) => (
   </div>
 );
 
+const getUnitRate = (unit) => (unit.total ? (unit.present / unit.total) * 100 : 0);
+
 export default function AttendanceDashboard() {
+  const [records, setRecords] = useState(attendanceData);
   const [selectedDate, setSelectedDate] = useState(attendanceData.at(-1).date);
-  const selectedIndex = attendanceData.findIndex((record) => record.date === selectedDate);
-  const current = attendanceData[selectedIndex];
-  const previous = attendanceData[Math.max(0, selectedIndex - 1)];
+  const [sourceName, setSourceName] = useState("7월 인력 현황.xlsx");
+  const [importState, setImportState] = useState({ type: "", message: "" });
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      if (saved?.records?.length) {
+        setRecords(saved.records);
+        setSourceName(saved.sourceName || "업데이트 파일.xlsx");
+        setSelectedDate(saved.records.at(-1).date);
+        setImportState({
+          type: "success",
+          message: "저장된 파일 데이터를 사용하고 있습니다.",
+        });
+      }
+    } catch {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }, []);
+
+  const handleFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setImportState({ type: "loading", message: "엑셀 데이터를 읽고 있습니다…" });
+
+    try {
+      const sheets = await readExcelFile(file);
+      const nextRecords = parseAttendanceSheets(sheets);
+      setRecords(nextRecords);
+      setSourceName(file.name);
+      setSelectedDate(nextRecords.at(-1).date);
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ records: nextRecords, sourceName: file.name }),
+      );
+      setImportState({
+        type: "success",
+        message: `${nextRecords.length}개 근무일 데이터를 업데이트했습니다.`,
+      });
+    } catch (error) {
+      setImportState({
+        type: "error",
+        message: error instanceof Error ? error.message : "파일을 읽지 못했습니다.",
+      });
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const resetData = () => {
+    localStorage.removeItem(STORAGE_KEY);
+    setRecords(attendanceData);
+    setSourceName("7월 인력 현황.xlsx");
+    setSelectedDate(attendanceData.at(-1).date);
+    setImportState({ type: "success", message: "기본 데이터로 복원했습니다." });
+  };
+
+  const selectedIndex = records.findIndex((record) => record.date === selectedDate);
+  const current = records[selectedIndex] || records.at(-1);
+  const previous = records[Math.max(0, selectedIndex - 1)] || current;
   const delta = Number((current.rate - previous.rate).toFixed(1));
 
   const monthRecords = useMemo(
-    () => attendanceData.filter((record) => record.date.slice(0, 7) === current.date.slice(0, 7)),
-    [current.date],
+    () => records.filter((record) => record.date.slice(0, 7) === current.date.slice(0, 7)),
+    [current.date, records],
   );
   const monthAverage = monthRecords.reduce((sum, item) => sum + item.rate, 0) / monthRecords.length;
   const strongestUnit = [...current.units].sort(
-    (a, b) => b.present / b.total - a.present / a.total,
+    (a, b) => getUnitRate(b) - getUnitRate(a),
   )[0];
   const criticalUnit = [...current.units].sort(
-    (a, b) => a.present / a.total - b.present / b.total,
+    (a, b) => getUnitRate(a) - getUnitRate(b),
   )[0];
   const unitAccent = { "ACM V0": "#1f4d3a", "ACM V5": "#d8ff3e", ACK: "#77a8ff" };
 
@@ -102,7 +169,7 @@ export default function AttendanceDashboard() {
         </nav>
         <div className="source-card">
           <Icon name="file" />
-          <div><span>데이터 소스</span><strong>7월 인력 현황.xlsx</strong><small>{attendanceData.length}개 근무일 반영</small></div>
+          <div><span>데이터 소스</span><strong title={sourceName}>{sourceName}</strong><small>{records.length}개 근무일 반영</small></div>
         </div>
         <div className="sidebar-foot">ACM People Operations<br /><span>Internal dashboard</span></div>
       </aside>
@@ -114,11 +181,27 @@ export default function AttendanceDashboard() {
             <h1>ACM 일일 출근 현황</h1>
           </div>
           <div className="top-actions">
+            <button
+              className="upload-button"
+              type="button"
+              aria-label="데이터 파일 선택"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Icon name="upload" size={17} />
+              <span>데이터 파일 선택</span>
+            </button>
+            <input
+              ref={fileInputRef}
+              className="sr-only"
+              type="file"
+              accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              onChange={handleFileChange}
+            />
             <label className="date-picker">
               <Icon name="calendar" />
               <span className="sr-only">기준일 선택</span>
               <select value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)}>
-                {[...attendanceData].reverse().map((record) => (
+                {[...records].reverse().map((record) => (
                   <option key={record.date} value={record.date}>{formatDate(record.date)}</option>
                 ))}
               </select>
@@ -127,6 +210,15 @@ export default function AttendanceDashboard() {
             <div className="profile">HR</div>
           </div>
         </header>
+
+        {importState.message && (
+          <div className={`import-notice ${importState.type}`} role="status" aria-live="polite">
+            <span>{importState.message}</span>
+            {records !== attendanceData && importState.type !== "loading" && (
+              <button type="button" onClick={resetData}>기본 데이터 복원</button>
+            )}
+          </div>
+        )}
 
         <div className="dashboard" id="overview">
           <section className="hero-card">
@@ -166,7 +258,7 @@ export default function AttendanceDashboard() {
               <div><p className="eyebrow">ATTENDANCE TREND</p><h3>최근 출근율 추이</h3></div>
               <div className="trend-stat"><span>선택일</span><strong>{current.rate.toFixed(1)}%</strong></div>
             </div>
-            <MiniTrend records={attendanceData} selectedIndex={selectedIndex} />
+            <MiniTrend records={records} selectedIndex={selectedIndex} />
           </section>
 
           <section className="panel units-panel" id="units">
@@ -177,7 +269,7 @@ export default function AttendanceDashboard() {
             <div className="unit-table">
               <div className="unit-row table-head"><span>조직</span><span>출근 / 재적</span><span>미출근</span><span>출근율</span></div>
               {current.units.map((unit) => {
-                const rate = (unit.present / unit.total) * 100;
+                const rate = getUnitRate(unit);
                 return (
                   <div className="unit-row" key={unit.name}>
                     <span className="unit-name"><i style={{ background: unitAccent[unit.name] }} />{unit.name}</span>
@@ -228,7 +320,7 @@ export default function AttendanceDashboard() {
             <div>
               <p className="eyebrow light">TODAY&apos;S NOTE</p>
               <h3>{strongestUnit.name} 출근율이 가장 안정적입니다.</h3>
-              <p>{strongestUnit.name}은(는) {((strongestUnit.present / strongestUnit.total) * 100).toFixed(1)}% 출근율을 기록했습니다. {criticalUnit.name} 미출근 {criticalUnit.total - criticalUnit.present}명을 우선 확인해 주세요.</p>
+              <p>{strongestUnit.name}은(는) {getUnitRate(strongestUnit).toFixed(1)}% 출근율을 기록했습니다. {criticalUnit.name} 미출근 {criticalUnit.total - criticalUnit.present}명을 우선 확인해 주세요.</p>
             </div>
             <a href="#units" aria-label="조직별 현황 보기"><Icon name="arrow" /></a>
           </section>
