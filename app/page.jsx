@@ -111,7 +111,7 @@ export default function AttendanceDashboard() {
         <header className="topbar">
           <div>
             <p className="eyebrow">DAILY ATTENDANCE</p>
-            <h1>일일 출근 현황</h1>
+            <h1>ACM 일일 출근 현황</h1>
           </div>
           <div className="top-actions">
             <label className="date-picker">

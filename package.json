@@ -7,6 +7,7 @@
     "dev": "vinext dev",
     "build": "vinext build && node scripts/copy-hosting.mjs",
     "build:pages": "vite build --config vite.pages.config.mjs",
+    "preview:pages": "vite preview --config vite.pages.config.mjs --host 127.0.0.1 --port 4173",
     "start": "vinext start"
   },
   "dependencies": {
