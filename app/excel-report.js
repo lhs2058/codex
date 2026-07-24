@@ -1,4 +1,5 @@
 import { strToU8, zipSync } from "fflate";
+import { getTranslation } from "./translations.js";
 
 const escapeXml = (value) =>
   String(value)
@@ -20,36 +21,37 @@ const formulaCell = (ref, formula, cachedValue, style = 6) =>
 const row = (index, cells, height = 22) =>
   `<row r="${index}" ht="${height}" customHeight="1">${cells.join("")}</row>`;
 
-const workbookFiles = ({ current, records, sourceName }) => {
+const workbookFiles = ({ current, records, sourceName, language = "ko" }) => {
+  const t = getTranslation(language);
   const selectedIndex = records.findIndex(({ date }) => date === current.date);
   const trend = records.slice(Math.max(0, selectedIndex - 9), selectedIndex + 1);
   const lastRow = 28 + trend.length;
   const createdAt = new Date().toISOString();
 
   const sheetRows = [
-    row(1, [inlineCell("A1", "ACM 일일 출근 현황", 1)], 32),
+    row(1, [inlineCell("A1", t.title, 1)], 32),
     row(2, [], 12),
     row(3, [
       inlineCell(
         "A3",
-        `기준일: ${current.date}  |  데이터 소스: ${sourceName}`,
+        `${t.baseDate}: ${current.date}  |  ${t.dataSource}: ${sourceName}`,
         7,
       ),
     ]),
     row(5, [
-      inlineCell("A5", "요약 지표", 2),
-      inlineCell("D5", "조직별 출근 현황", 2),
+      inlineCell("A5", t.summaryMetrics, 2),
+      inlineCell("D5", t.byUnit, 2),
     ], 26),
     row(6, [
-      inlineCell("A6", "재적 인원", 4),
+      inlineCell("A6", t.total, 4),
       numberCell("B6", current.total),
-      inlineCell("D6", "조직", 3),
-      inlineCell("E6", "재적", 3),
-      inlineCell("F6", "출근", 3),
-      inlineCell("G6", "출근율", 3),
+      inlineCell("D6", t.organization, 3),
+      inlineCell("E6", t.totalShort, 3),
+      inlineCell("F6", t.presentShort, 3),
+      inlineCell("G6", t.attendanceRate, 3),
     ]),
     row(7, [
-      inlineCell("A7", "출근 인원", 4),
+      inlineCell("A7", t.present, 4),
       numberCell("B7", current.present),
       inlineCell("D7", current.units[0]?.name || "ACM V0", 4),
       numberCell("E7", current.units[0]?.total),
@@ -57,7 +59,7 @@ const workbookFiles = ({ current, records, sourceName }) => {
       formulaCell("G7", "IFERROR(F7/E7,0)", current.units[0]?.total ? current.units[0].present / current.units[0].total : 0),
     ]),
     row(8, [
-      inlineCell("A8", "미출근", 4),
+      inlineCell("A8", t.absent, 4),
       formulaCell("B8", "B6-B7", current.absent, 5),
       inlineCell("D8", current.units[1]?.name || "ACM V5", 4),
       numberCell("E8", current.units[1]?.total),
@@ -65,44 +67,44 @@ const workbookFiles = ({ current, records, sourceName }) => {
       formulaCell("G8", "IFERROR(F8/E8,0)", current.units[1]?.total ? current.units[1].present / current.units[1].total : 0),
     ]),
     row(9, [
-      inlineCell("A9", "출근율", 4),
+      inlineCell("A9", t.attendanceRate, 4),
       formulaCell("B9", "IFERROR(B7/B6,0)", current.total ? current.present / current.total : 0),
       inlineCell("D9", current.units[2]?.name || "ACK", 4),
       numberCell("E9", current.units[2]?.total),
       numberCell("F9", current.units[2]?.present),
       formulaCell("G9", "IFERROR(F9/E9,0)", current.units[2]?.total ? current.units[2].present / current.units[2].total : 0),
     ]),
-    row(12, [inlineCell("A12", "주간 · 야간 운영", 2)], 26),
+    row(12, [inlineCell("A12", t.shiftBalance, 2)], 26),
     row(13, [
-      inlineCell("A13", "구분", 3),
-      inlineCell("B13", "재적", 3),
-      inlineCell("C13", "미출근", 3),
-      inlineCell("D13", "출근", 3),
-      inlineCell("E13", "출근율", 3),
+      inlineCell("A13", t.category, 3),
+      inlineCell("B13", t.totalShort, 3),
+      inlineCell("C13", t.absentShort, 3),
+      inlineCell("D13", t.presentShort, 3),
+      inlineCell("E13", t.attendanceRate, 3),
     ]),
     row(14, [
-      inlineCell("A14", "주간 근무", 4),
+      inlineCell("A14", t.dayShift, 4),
       numberCell("B14", current.shifts.dayTotal),
       numberCell("C14", current.shifts.dayAbsent),
       formulaCell("D14", "B14-C14", current.shifts.dayTotal - current.shifts.dayAbsent, 5),
       formulaCell("E14", "IFERROR(D14/B14,0)", current.shifts.dayTotal ? (current.shifts.dayTotal - current.shifts.dayAbsent) / current.shifts.dayTotal : 0),
     ]),
     row(15, [
-      inlineCell("A15", "야간 근무", 4),
+      inlineCell("A15", t.nightShift, 4),
       numberCell("B15", current.shifts.nightTotal),
       numberCell("C15", current.shifts.nightAbsent),
       formulaCell("D15", "B15-C15", current.shifts.nightTotal - current.shifts.nightAbsent, 5),
       formulaCell("E15", "IFERROR(D15/B15,0)", current.shifts.nightTotal ? (current.shifts.nightTotal - current.shifts.nightAbsent) / current.shifts.nightTotal : 0),
     ]),
-    row(18, [inlineCell("A18", "근태 사유", 2)], 26),
+    row(18, [inlineCell("A18", t.reasons, 2)], 26),
     row(19, [
-      inlineCell("A19", "일반 결근", 3),
-      inlineCell("B19", "휴가 신청", 3),
-      inlineCell("C19", "지각", 3),
-      inlineCell("D19", "조퇴", 3),
-      inlineCell("E19", "출산 휴가", 3),
-      inlineCell("F19", "부서 이동", 3),
-      inlineCell("G19", "퇴사", 3),
+      inlineCell("A19", t.unplanned, 3),
+      inlineCell("B19", t.approved, 3),
+      inlineCell("C19", t.late, 3),
+      inlineCell("D19", t.earlyLeave, 3),
+      inlineCell("E19", t.maternity, 3),
+      inlineCell("F19", t.transfer, 3),
+      inlineCell("G19", t.resigned, 3),
     ]),
     row(20, [
       numberCell("A20", current.reasons.unplanned),
@@ -116,17 +118,17 @@ const workbookFiles = ({ current, records, sourceName }) => {
     row(23, [
       inlineCell(
         "A23",
-        "선택한 Excel 파일을 브라우저에서 분석하여 생성한 보고서입니다.",
+        t.browserGenerated,
         7,
       ),
     ]),
-    row(26, [inlineCell("A26", "최근 출근율 추이", 2)], 26),
+    row(26, [inlineCell("A26", t.recentTrend, 2)], 26),
     row(27, [
-      inlineCell("A27", "날짜", 3),
-      inlineCell("B27", "재적", 3),
-      inlineCell("C27", "출근", 3),
-      inlineCell("D27", "미출근", 3),
-      inlineCell("E27", "출근율", 3),
+      inlineCell("A27", t.date, 3),
+      inlineCell("B27", t.totalShort, 3),
+      inlineCell("C27", t.presentShort, 3),
+      inlineCell("D27", t.absentShort, 3),
+      inlineCell("E27", t.attendanceRate, 3),
     ]),
     ...trend.map((record, index) => {
       const rowIndex = 28 + index;
@@ -221,7 +223,7 @@ const workbookFiles = ({ current, records, sourceName }) => {
 </Relationships>`),
     "docProps/core.xml": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dc:title>ACM 일일 출근 현황</dc:title>
+  <dc:title>${escapeXml(t.title)}</dc:title>
   <dc:creator>ACM Attendance Dashboard</dc:creator>
   <cp:lastModifiedBy>ACM Attendance Dashboard</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">${createdAt}</dcterms:created>
@@ -233,7 +235,7 @@ const workbookFiles = ({ current, records, sourceName }) => {
 </Properties>`),
     "xl/workbook.xml": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="일일 출근 현황" sheetId="1" r:id="rId1"/></sheets>
+  <sheets><sheet name="${escapeXml(t.reportSheet)}" sheetId="1" r:id="rId1"/></sheets>
   <calcPr calcId="191029" calcMode="auto" fullCalcOnLoad="1"/>
 </workbook>`),
     "xl/_rels/workbook.xml.rels": strToU8(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -264,5 +266,6 @@ export const downloadBlob = (blob, filename) => {
 
 export const downloadExcelReport = (data) => {
   const blob = buildExcelReportBlob(data);
-  downloadBlob(blob, `ACM_일일_출근_현황_${data.current.date}.xlsx`);
+  const suffix = data.language === "vi" ? "bao_cao_di_lam" : "일일_출근_현황";
+  downloadBlob(blob, `ACM_${suffix}_${data.current.date}.xlsx`);
 };

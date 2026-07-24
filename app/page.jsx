@@ -6,8 +6,10 @@ import attendanceData from "./attendance-data.json";
 import { parseAttendanceSheets } from "./attendance-import.js";
 import { downloadExcelReport } from "./excel-report.js";
 import { downloadPdfReport } from "./pdf-report.js";
+import { getTranslation } from "./translations.js";
 
 const STORAGE_KEY = "acm-attendance-import";
+const LANGUAGE_KEY = "acm-attendance-language";
 
 const Icon = ({ name, size = 20 }) => {
   const paths = {
@@ -27,15 +29,15 @@ const Icon = ({ name, size = 20 }) => {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 };
 
-const formatDate = (date) =>
-  new Intl.DateTimeFormat("ko-KR", {
+const formatDate = (date, language = "ko") =>
+  new Intl.DateTimeFormat(language === "vi" ? "vi-VN" : "ko-KR", {
     year: "numeric",
     month: "long",
     day: "numeric",
     weekday: "short",
   }).format(new Date(`${date}T00:00:00`));
 
-const MiniTrend = ({ records, selectedIndex }) => {
+const MiniTrend = ({ records, selectedIndex, label }) => {
   const points = records.slice(Math.max(0, selectedIndex - 9), selectedIndex + 1);
   const width = 660;
   const height = 210;
@@ -49,7 +51,7 @@ const MiniTrend = ({ records, selectedIndex }) => {
 
   return (
     <div className="trend-wrap">
-      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="최근 출근율 추이">
+      <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={label}>
         {[0, 1, 2, 3].map((lineIndex) => {
           const lineY = pad + (lineIndex * (height - pad * 2)) / 3;
           return <line key={lineIndex} x1={pad} x2={width - pad} y1={lineY} y2={lineY} className="grid-line" />;
@@ -69,11 +71,11 @@ const MiniTrend = ({ records, selectedIndex }) => {
   );
 };
 
-const AttendanceRing = ({ rate }) => (
+const AttendanceRing = ({ rate, label }) => (
   <div className="ring" style={{ "--rate": `${rate * 3.6}deg` }}>
     <div>
       <strong>{rate.toFixed(1)}%</strong>
-      <span>출근율</span>
+      <span>{label}</span>
     </div>
   </div>
 );
@@ -100,22 +102,23 @@ const getManualForm = (record) => {
 
 const manualFields = {
   units: [
-    ["v0Total", "ACM V0 재적"], ["v0Present", "ACM V0 출근"],
-    ["v5Total", "ACM V5 재적"], ["v5Present", "ACM V5 출근"],
-    ["ackTotal", "ACK 재적"], ["ackPresent", "ACK 출근"],
+    ["v0Total", "v0Total"], ["v0Present", "v0Present"],
+    ["v5Total", "v5Total"], ["v5Present", "v5Present"],
+    ["ackTotal", "ackTotal"], ["ackPresent", "ackPresent"],
   ],
   shifts: [
-    ["dayTotal", "주간 재적"], ["dayAbsent", "주간 미출근"],
-    ["nightTotal", "야간 재적"], ["nightAbsent", "야간 미출근"],
+    ["dayTotal", "dayTotal"], ["dayAbsent", "dayAbsent"],
+    ["nightTotal", "nightTotal"], ["nightAbsent", "nightAbsent"],
   ],
   reasons: [
-    ["unplanned", "일반 결근"], ["approved", "휴가 신청"],
-    ["late", "지각"], ["earlyLeave", "조퇴"],
-    ["maternity", "출산 휴가"], ["transfer", "부서 이동"], ["resigned", "퇴사"],
+    ["unplanned", "unplanned"], ["approved", "approved"],
+    ["late", "late"], ["earlyLeave", "earlyLeave"],
+    ["maternity", "maternity"], ["transfer", "transfer"], ["resigned", "resigned"],
   ],
 };
 
-const ManualEntryModal = ({ record, onClose, onSave }) => {
+const ManualEntryModal = ({ record, language, onClose, onSave }) => {
+  const t = getTranslation(language);
   const [form, setForm] = useState(() => getManualForm(record));
   const [error, setError] = useState("");
   const numberValue = (key) => Math.max(0, Number(form[key]) || 0);
@@ -137,15 +140,15 @@ const ManualEntryModal = ({ record, onClose, onSave }) => {
       ["ackTotal", "ackPresent", "ACK"],
     ].find(([totalKey, presentKey]) => numberValue(presentKey) > numberValue(totalKey));
     if (invalidUnit) {
-      setError(`${invalidUnit[2]} 출근 인원은 재적 인원보다 클 수 없습니다.`);
+      setError(t.unitValidation(invalidUnit[2]));
       return;
     }
     if (numberValue("dayAbsent") > numberValue("dayTotal") || numberValue("nightAbsent") > numberValue("nightTotal")) {
-      setError("주간·야간 미출근 인원은 각 재적 인원보다 클 수 없습니다.");
+      setError(t.shiftValidation);
       return;
     }
     if (numberValue("dayTotal") + numberValue("nightTotal") !== total) {
-      setError(`주간·야간 재적 합계가 전체 재적 ${total}명과 같아야 합니다.`);
+      setError(t.shiftTotalValidation(total));
       return;
     }
 
@@ -172,9 +175,9 @@ const ManualEntryModal = ({ record, onClose, onSave }) => {
     });
   };
 
-  const renderFields = (fields) => fields.map(([key, label]) => (
+  const renderFields = (fields) => fields.map(([key, labelKey]) => (
     <label className="manual-field" key={key}>
-      <span>{label}</span>
+      <span>{t[labelKey]}</span>
       <input
         type="number"
         min="0"
@@ -190,31 +193,31 @@ const ManualEntryModal = ({ record, onClose, onSave }) => {
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="manual-modal" role="dialog" aria-modal="true" aria-labelledby="manual-title">
         <header className="manual-modal-head">
-          <div><p className="eyebrow">MANUAL ENTRY</p><h2 id="manual-title">출근 데이터 직접 입력</h2></div>
-          <button type="button" aria-label="입력 창 닫기" onClick={onClose}><Icon name="close" /></button>
+          <div><p className="eyebrow">MANUAL ENTRY</p><h2 id="manual-title">{t.manualTitle}</h2></div>
+          <button type="button" aria-label={t.close} onClick={onClose}><Icon name="close" /></button>
         </header>
         <form onSubmit={submit}>
           <div className="manual-date-row">
             <label className="manual-field">
-              <span>기준일</span>
+              <span>{t.baseDate}</span>
               <input type="date" required value={form.date} onChange={(event) => update("date", event.target.value)} />
             </label>
             <div className="manual-summary" aria-live="polite">
-              <span>재적 <strong>{total}</strong>명</span>
-              <span>출근 <strong>{present}</strong>명</span>
-              <span>미출근 <strong>{absent}</strong>명</span>
-              <span>출근율 <strong>{rate.toFixed(1)}</strong>%</span>
+              <span>{t.totalShort} <strong>{total}</strong>{t.people}</span>
+              <span>{t.presentShort} <strong>{present}</strong>{t.people}</span>
+              <span>{t.absentShort} <strong>{absent}</strong>{t.people}</span>
+              <span>{t.attendanceRate} <strong>{rate.toFixed(1)}</strong>%</span>
             </div>
           </div>
           <div className="manual-sections">
-            <fieldset><legend>조직별 인원</legend><div className="manual-grid">{renderFields(manualFields.units)}</div></fieldset>
-            <fieldset><legend>주간 · 야간</legend><div className="manual-grid">{renderFields(manualFields.shifts)}</div></fieldset>
-            <fieldset className="reason-fields"><legend>근태 사유</legend><div className="manual-grid">{renderFields(manualFields.reasons)}</div></fieldset>
+            <fieldset><legend>{t.unitPeople}</legend><div className="manual-grid">{renderFields(manualFields.units)}</div></fieldset>
+            <fieldset><legend>{t.shifts}</legend><div className="manual-grid">{renderFields(manualFields.shifts)}</div></fieldset>
+            <fieldset className="reason-fields"><legend>{t.reasons}</legend><div className="manual-grid">{renderFields(manualFields.reasons)}</div></fieldset>
           </div>
           {error && <p className="manual-error" role="alert">{error}</p>}
           <footer className="manual-modal-foot">
-            <p>같은 날짜가 있으면 해당 데이터가 수정되고, 새 날짜는 목록에 추가됩니다.</p>
-            <div><button type="button" className="cancel" onClick={onClose}>취소</button><button type="submit" className="save">데이터 저장</button></div>
+            <p>{t.manualHint}</p>
+            <div><button type="button" className="cancel" onClick={onClose}>{t.cancel}</button><button type="submit" className="save">{t.saveData}</button></div>
           </footer>
         </form>
       </section>
@@ -229,11 +232,15 @@ export default function AttendanceDashboard() {
   const [importState, setImportState] = useState({ type: "", message: "" });
   const [reportState, setReportState] = useState({ type: "", message: "" });
   const [manualOpen, setManualOpen] = useState(false);
+  const [language, setLanguage] = useState("ko");
   const fileInputRef = useRef(null);
   const reportRef = useRef(null);
 
   useEffect(() => {
     try {
+      const savedLanguage = localStorage.getItem(LANGUAGE_KEY);
+      if (savedLanguage === "vi") setLanguage("vi");
+      const savedTranslation = getTranslation(savedLanguage);
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
       if (saved?.records?.length) {
         setRecords(saved.records);
@@ -241,7 +248,7 @@ export default function AttendanceDashboard() {
         setSelectedDate(saved.records.at(-1).date);
         setImportState({
           type: "success",
-          message: "저장된 파일 데이터를 사용하고 있습니다.",
+          message: savedTranslation.savedFile,
         });
       }
     } catch {
@@ -253,11 +260,22 @@ export default function AttendanceDashboard() {
     }
   }, []);
 
+  const t = getTranslation(language);
+  const toggleLanguage = () => {
+    const nextLanguage = language === "ko" ? "vi" : "ko";
+    setLanguage(nextLanguage);
+    try {
+      localStorage.setItem(LANGUAGE_KEY, nextLanguage);
+    } catch {
+      // The language still changes for the current session.
+    }
+  };
+
   const handleFileChange = async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    setImportState({ type: "loading", message: "엑셀 데이터를 읽고 있습니다…" });
+    setImportState({ type: "loading", message: t.loadingExcel });
 
     try {
       const sheets = await readExcelFile(file);
@@ -276,12 +294,12 @@ export default function AttendanceDashboard() {
       }
       setImportState({
         type: "success",
-        message: `${nextRecords.length}개 근무일 데이터를 업데이트했습니다.${savedForRefresh ? "" : " 현재 실행 중인 화면에만 적용됩니다."}`,
+        message: t.updated(nextRecords.length, savedForRefresh),
       });
     } catch (error) {
       setImportState({
         type: "error",
-        message: error instanceof Error ? error.message : "파일을 읽지 못했습니다.",
+        message: error instanceof Error ? error.message : t.fileError,
       });
     } finally {
       event.target.value = "";
@@ -297,7 +315,7 @@ export default function AttendanceDashboard() {
     setRecords(attendanceData);
     setSourceName("7월 인력 현황.xlsx");
     setSelectedDate(attendanceData.at(-1).date);
-    setImportState({ type: "success", message: "기본 데이터로 복원했습니다." });
+    setImportState({ type: "success", message: t.restored });
   };
 
   const selectedIndex = records.findIndex((record) => record.date === selectedDate);
@@ -321,27 +339,27 @@ export default function AttendanceDashboard() {
 
   const exportExcel = () => {
     try {
-      downloadExcelReport({ current, records, sourceName });
+      downloadExcelReport({ current, records, sourceName, language });
       setReportState({
         type: "success",
-        message: `${formatDate(current.date)} Excel 보고서를 저장했습니다.`,
+        message: `${formatDate(current.date, language)} ${t.excelSaved}`,
       });
     } catch {
-      setReportState({ type: "error", message: "Excel 보고서를 만들지 못했습니다." });
+      setReportState({ type: "error", message: t.reportError("Excel") });
     }
   };
 
   const exportPdf = async () => {
     if (!reportRef.current) return;
-    setReportState({ type: "loading", message: "PDF 보고서를 만들고 있습니다…" });
+    setReportState({ type: "loading", message: t.pdfCreating });
     try {
-      await downloadPdfReport(reportRef.current, current.date);
+      await downloadPdfReport(reportRef.current, current.date, language);
       setReportState({
         type: "success",
-        message: `${formatDate(current.date)} PDF 보고서를 저장했습니다.`,
+        message: `${formatDate(current.date, language)} ${t.pdfSaved}`,
       });
     } catch {
-      setReportState({ type: "error", message: "PDF 보고서를 만들지 못했습니다." });
+      setReportState({ type: "error", message: t.reportError("PDF") });
     }
   };
 
@@ -361,7 +379,7 @@ export default function AttendanceDashboard() {
     }
     setImportState({
       type: "success",
-      message: `${formatDate(record.date)} 데이터를 저장했습니다.${savedForRefresh ? "" : " 현재 실행 중인 화면에만 적용됩니다."}`,
+      message: t.manualSaved(formatDate(record.date, language), savedForRefresh),
     });
   };
 
@@ -374,14 +392,14 @@ export default function AttendanceDashboard() {
           <div><strong>ACM · ACK</strong><small>WORKFORCE CONTROL</small></div>
         </div>
         <nav>
-          <a className="active" href="#overview"><Icon name="grid" />일일 현황</a>
-          <a href="#units"><Icon name="users" />조직별 현황</a>
-          <a href="#trend"><Icon name="chart" />출근 추이</a>
-          <a href="#reasons"><Icon name="calendar" />근태 사유</a>
+          <a className="active" href="#overview"><Icon name="grid" />{t.dailyStatus}</a>
+          <a href="#units"><Icon name="users" />{t.byUnit}</a>
+          <a href="#trend"><Icon name="chart" />{t.trend}</a>
+          <a href="#reasons"><Icon name="calendar" />{t.reasons}</a>
         </nav>
         <div className="source-card">
           <Icon name="file" />
-          <div><span>데이터 소스</span><strong title={sourceName}>{sourceName}</strong><small>{records.length}개 근무일 반영</small></div>
+          <div><span>{t.dataSource}</span><strong title={sourceName}>{sourceName}</strong><small>{records.length}{t.workdays}</small></div>
         </div>
         <div className="sidebar-foot">ACM People Operations<br /><span>Internal dashboard</span></div>
       </aside>
@@ -390,26 +408,26 @@ export default function AttendanceDashboard() {
         <header className="topbar">
           <div>
             <p className="eyebrow">DAILY ATTENDANCE</p>
-            <h1>ACM 일일 출근 현황</h1>
+            <h1>{t.title}</h1>
           </div>
           <div className="top-actions">
             <button
               className="upload-button"
               type="button"
-              aria-label="데이터 파일 선택"
+              aria-label={t.chooseFile}
               onClick={() => fileInputRef.current?.click()}
             >
               <Icon name="upload" size={17} />
-              <span>데이터 파일 선택</span>
+              <span>{t.chooseFile}</span>
             </button>
             <button
               className="manual-button"
               type="button"
-              aria-label="출근 데이터 직접 입력"
+              aria-label={t.manualEntryLabel}
               onClick={() => setManualOpen(true)}
             >
               <Icon name="edit" size={17} />
-              <span>직접 입력</span>
+              <span>{t.manualEntry}</span>
             </button>
             <input
               ref={fileInputRef}
@@ -420,31 +438,34 @@ export default function AttendanceDashboard() {
             />
             <label className="date-picker">
               <Icon name="calendar" />
-              <span className="sr-only">기준일 선택</span>
+              <span className="sr-only">{t.chooseDate}</span>
               <select value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)}>
                 {[...records].reverse().map((record) => (
-                  <option key={record.date} value={record.date}>{formatDate(record.date)}</option>
+                  <option key={record.date} value={record.date}>{formatDate(record.date, language)}</option>
                 ))}
               </select>
             </label>
             <button
               className="report-button excel"
               type="button"
-              aria-label="Excel 보고서 저장"
+              aria-label={t.excelReport}
               onClick={exportExcel}
             >
               <Icon name="sheet" size={17} />
-              <span>Excel 보고서</span>
+              <span>{t.excelReport}</span>
             </button>
             <button
               className="report-button pdf"
               type="button"
-              aria-label="PDF 보고서 저장"
+              aria-label={t.pdfReport}
               disabled={reportState.type === "loading"}
               onClick={exportPdf}
             >
               <Icon name="pdf" size={17} />
-              <span>PDF 보고서</span>
+              <span>{t.pdfReport}</span>
+            </button>
+            <button className="language-button" type="button" aria-label={t.languageLabel} onClick={toggleLanguage}>
+              {t.language}
             </button>
             <button className="icon-button" aria-label="알림"><Icon name="bell" /></button>
             <div className="profile">HR</div>
@@ -455,7 +476,7 @@ export default function AttendanceDashboard() {
           <div className={`import-notice ${importState.type}`} role="status" aria-live="polite">
             <span>{importState.message}</span>
             {records !== attendanceData && importState.type !== "loading" && (
-              <button type="button" onClick={resetData}>기본 데이터 복원</button>
+              <button type="button" onClick={resetData}>{t.restore}</button>
             )}
           </div>
         )}
@@ -469,58 +490,58 @@ export default function AttendanceDashboard() {
         <div className="dashboard" id="overview">
           <section className="hero-card">
             <div className="hero-copy">
-              <p className="eyebrow light">{formatDate(current.date)} · 확정 현황</p>
-              <h2><span>{current.present}</span>명이<br />오늘 함께합니다.</h2>
-              <p>재적인원 {current.total}명 중 {current.present}명이 출근했습니다. 미출근 인원은 {current.absent}명입니다.</p>
+              <p className="eyebrow light">{formatDate(current.date, language)} · {t.confirmed}</p>
+              <h2><span>{current.present}</span>{t.together}</h2>
+              <p>{t.heroSummary(current)}</p>
               <div className="hero-tags">
-                <span>월 평균 {monthAverage.toFixed(1)}%</span>
-                <span className={delta >= 0 ? "positive" : "negative"}>전일 대비 {delta >= 0 ? "+" : ""}{delta}%p</span>
+                <span>{t.monthAverage} {monthAverage.toFixed(1)}%</span>
+                <span className={delta >= 0 ? "positive" : "negative"}>{t.versusPrevious} {delta >= 0 ? "+" : ""}{delta}%p</span>
               </div>
             </div>
-            <AttendanceRing rate={current.rate} />
+            <AttendanceRing rate={current.rate} label={t.attendanceRate} />
           </section>
 
           <section className="kpi-grid">
             <article className="kpi-card primary">
-              <span>출근 인원</span><strong>{current.present}<small>명</small></strong>
+              <span>{t.present}</span><strong>{current.present}<small>{t.people}</small></strong>
               <p>Present employees</p>
             </article>
             <article className="kpi-card">
-              <span>재적 인원</span><strong>{current.total}<small>명</small></strong>
+              <span>{t.total}</span><strong>{current.total}<small>{t.people}</small></strong>
               <p>Total workforce</p>
             </article>
             <article className="kpi-card warning">
-              <span>미출근</span><strong>{current.absent}<small>명</small></strong>
+              <span>{t.absent}</span><strong>{current.absent}<small>{t.people}</small></strong>
               <p>Absent today</p>
             </article>
             <article className="kpi-card">
-              <span>출근율</span><strong>{current.rate.toFixed(1)}<small>%</small></strong>
+              <span>{t.attendanceRate}</span><strong>{current.rate.toFixed(1)}<small>%</small></strong>
               <p className={delta >= 0 ? "up" : "down"}>{delta >= 0 ? "↑" : "↓"} {Math.abs(delta)}%p vs. 전일</p>
             </article>
           </section>
 
           <section className="panel trend-panel" id="trend">
             <div className="panel-head">
-              <div><p className="eyebrow">ATTENDANCE TREND</p><h3>최근 출근율 추이</h3></div>
-              <div className="trend-stat"><span>선택일</span><strong>{current.rate.toFixed(1)}%</strong></div>
+              <div><p className="eyebrow">ATTENDANCE TREND</p><h3>{t.recentTrend}</h3></div>
+              <div className="trend-stat"><span>{t.selectedDate}</span><strong>{current.rate.toFixed(1)}%</strong></div>
             </div>
-            <MiniTrend records={records} selectedIndex={selectedIndex} />
+            <MiniTrend records={records} selectedIndex={selectedIndex} label={t.recentTrend} />
           </section>
 
           <section className="panel units-panel" id="units">
             <div className="panel-head">
-              <div><p className="eyebrow">BY ORGANIZATION</p><h3>조직별 출근 현황</h3></div>
+              <div><p className="eyebrow">BY ORGANIZATION</p><h3>{t.byUnit}</h3></div>
               <span className="status-pill">LIVE SNAPSHOT</span>
             </div>
             <div className="unit-table">
-              <div className="unit-row table-head"><span>조직</span><span>출근 / 재적</span><span>미출근</span><span>출근율</span></div>
+              <div className="unit-row table-head"><span>{t.organization}</span><span>{t.presentTotal}</span><span>{t.absent}</span><span>{t.attendanceRate}</span></div>
               {current.units.map((unit) => {
                 const rate = getUnitRate(unit);
                 return (
                   <div className="unit-row" key={unit.name}>
                     <span className="unit-name"><i style={{ background: unitAccent[unit.name] }} />{unit.name}</span>
-                    <span><strong>{unit.present}</strong> / {unit.total}명</span>
-                    <span>{unit.total - unit.present}명</span>
+                    <span><strong>{unit.present}</strong> / {unit.total}{t.people}</span>
+                    <span>{unit.total - unit.present}{t.people}</span>
                     <span className="unit-rate"><b>{rate.toFixed(1)}%</b><i><em style={{ width: `${rate}%`, background: unitAccent[unit.name] }} /></i></span>
                   </div>
                 );
@@ -530,19 +551,19 @@ export default function AttendanceDashboard() {
 
           <section className="panel shift-panel">
             <div className="panel-head">
-              <div><p className="eyebrow">SHIFT BALANCE</p><h3>주간 · 야간 운영</h3></div>
+              <div><p className="eyebrow">SHIFT BALANCE</p><h3>{t.shiftBalance}</h3></div>
             </div>
             {[
-              { name: "주간 근무", total: current.shifts.dayTotal, absent: current.shifts.dayAbsent, color: "#d8ff3e" },
-              { name: "야간 근무", total: current.shifts.nightTotal, absent: current.shifts.nightAbsent, color: "#77a8ff" },
+              { name: t.dayShift, total: current.shifts.dayTotal, absent: current.shifts.dayAbsent, color: "#d8ff3e" },
+              { name: t.nightShift, total: current.shifts.nightTotal, absent: current.shifts.nightAbsent, color: "#77a8ff" },
             ].map((shift) => {
               const present = shift.total - shift.absent;
               const rate = shift.total ? (present / shift.total) * 100 : 0;
               return (
                 <div className="shift-row" key={shift.name}>
-                  <div className="shift-title"><span>{shift.name}</span><strong>{present}<small> / {shift.total}명</small></strong></div>
+                  <div className="shift-title"><span>{shift.name}</span><strong>{present}<small> / {shift.total}{t.people}</small></strong></div>
                   <div className="bar"><span style={{ width: `${rate}%`, background: shift.color }} /></div>
-                  <p>미출근 {shift.absent}명 · 출근율 {rate.toFixed(1)}%</p>
+                  <p>{t.shiftSummary({ absent: shift.absent, rate: rate.toFixed(1) })}</p>
                 </div>
               );
             })}
@@ -550,56 +571,56 @@ export default function AttendanceDashboard() {
 
           <section className="panel reasons-panel" id="reasons">
             <div className="panel-head">
-              <div><p className="eyebrow">ATTENDANCE REASONS</p><h3>근태 사유</h3></div>
-              <span className="total-absence">총 {current.absent}명</span>
+              <div><p className="eyebrow">ATTENDANCE REASONS</p><h3>{t.reasons}</h3></div>
+              <span className="total-absence">{t.totalAbsent} {current.absent}{t.people}</span>
             </div>
             <div className="reason-grid">
-              <div className="reason-main"><strong>{current.reasons.unplanned}</strong><span>일반 결근</span><small>Unplanned absence</small></div>
-              <div><strong>{current.reasons.approved}</strong><span>휴가 신청</span></div>
-              <div><strong>{current.reasons.late}</strong><span>지각</span></div>
-              <div><strong>{current.reasons.earlyLeave}</strong><span>조퇴</span></div>
+              <div className="reason-main"><strong>{current.reasons.unplanned}</strong><span>{t.unplanned}</span><small>Unplanned absence</small></div>
+              <div><strong>{current.reasons.approved}</strong><span>{t.approved}</span></div>
+              <div><strong>{current.reasons.late}</strong><span>{t.late}</span></div>
+              <div><strong>{current.reasons.earlyLeave}</strong><span>{t.earlyLeave}</span></div>
             </div>
           </section>
 
           <section className="insight-card">
             <span className="insight-index">01</span>
             <div>
-              <p className="eyebrow light">TODAY&apos;S NOTE</p>
-              <h3>{strongestUnit.name} 출근율이 가장 안정적입니다.</h3>
-              <p>{strongestUnit.name}은(는) {getUnitRate(strongestUnit).toFixed(1)}% 출근율을 기록했습니다. {criticalUnit.name} 미출근 {criticalUnit.total - criticalUnit.present}명을 우선 확인해 주세요.</p>
+              <p className="eyebrow light">{t.todayNote}</p>
+              <h3>{t.bestUnit({ name: strongestUnit.name })}</h3>
+              <p>{t.bestUnitNote({ best: strongestUnit.name, bestRate: getUnitRate(strongestUnit).toFixed(1), critical: criticalUnit.name, absent: criticalUnit.total - criticalUnit.present })}</p>
             </div>
-            <a href="#units" aria-label="조직별 현황 보기"><Icon name="arrow" /></a>
+            <a href="#units" aria-label={t.byUnit}><Icon name="arrow" /></a>
           </section>
         </div>
       </section>
     </main>
-    {manualOpen && <ManualEntryModal record={current} onClose={() => setManualOpen(false)} onSave={saveManualRecord} />}
+    {manualOpen && <ManualEntryModal record={current} language={language} onClose={() => setManualOpen(false)} onSave={saveManualRecord} />}
     <section ref={reportRef} className="pdf-report" aria-hidden="true">
       <header className="pdf-report-head">
         <div>
           <p>ACM PEOPLE OPERATIONS</p>
-          <h2>ACM 일일 출근 현황</h2>
+          <h2>{t.title}</h2>
         </div>
-        <span>{formatDate(current.date)}</span>
+        <span>{formatDate(current.date, language)}</span>
       </header>
-      <div className="pdf-source">데이터 소스: {sourceName}</div>
+      <div className="pdf-source">{t.reportSource}: {sourceName}</div>
       <div className="pdf-kpis">
-        <article><span>재적 인원</span><strong>{current.total}<small>명</small></strong></article>
-        <article className="accent"><span>출근 인원</span><strong>{current.present}<small>명</small></strong></article>
-        <article><span>미출근</span><strong>{current.absent}<small>명</small></strong></article>
-        <article><span>출근율</span><strong>{current.rate.toFixed(1)}<small>%</small></strong></article>
+        <article><span>{t.total}</span><strong>{current.total}<small>{t.people}</small></strong></article>
+        <article className="accent"><span>{t.present}</span><strong>{current.present}<small>{t.people}</small></strong></article>
+        <article><span>{t.absent}</span><strong>{current.absent}<small>{t.people}</small></strong></article>
+        <article><span>{t.attendanceRate}</span><strong>{current.rate.toFixed(1)}<small>%</small></strong></article>
       </div>
       <div className="pdf-columns">
         <article className="pdf-block">
-          <h3>조직별 출근 현황</h3>
+          <h3>{t.byUnit}</h3>
           <table>
-            <thead><tr><th>조직</th><th>출근 / 재적</th><th>미출근</th><th>출근율</th></tr></thead>
+            <thead><tr><th>{t.organization}</th><th>{t.presentTotal}</th><th>{t.absent}</th><th>{t.attendanceRate}</th></tr></thead>
             <tbody>
               {current.units.map((unit) => (
                 <tr key={unit.name}>
                   <td>{unit.name}</td>
-                  <td>{unit.present} / {unit.total}명</td>
-                  <td>{unit.total - unit.present}명</td>
+                  <td>{unit.present} / {unit.total}{t.people}</td>
+                  <td>{unit.total - unit.present}{t.people}</td>
                   <td>{getUnitRate(unit).toFixed(1)}%</td>
                 </tr>
               ))}
@@ -607,18 +628,18 @@ export default function AttendanceDashboard() {
           </table>
         </article>
         <article className="pdf-block">
-          <h3>주간 · 야간 운영</h3>
+          <h3>{t.shiftBalance}</h3>
           <table>
-            <thead><tr><th>구분</th><th>출근 / 재적</th><th>미출근</th><th>출근율</th></tr></thead>
+            <thead><tr><th>{t.category}</th><th>{t.presentTotal}</th><th>{t.absent}</th><th>{t.attendanceRate}</th></tr></thead>
             <tbody>
               {[
-                { name: "주간 근무", total: current.shifts.dayTotal, absent: current.shifts.dayAbsent },
-                { name: "야간 근무", total: current.shifts.nightTotal, absent: current.shifts.nightAbsent },
+                { name: t.dayShift, total: current.shifts.dayTotal, absent: current.shifts.dayAbsent },
+                { name: t.nightShift, total: current.shifts.nightTotal, absent: current.shifts.nightAbsent },
               ].map((shift) => (
                 <tr key={shift.name}>
                   <td>{shift.name}</td>
-                  <td>{shift.total - shift.absent} / {shift.total}명</td>
-                  <td>{shift.absent}명</td>
+                  <td>{shift.total - shift.absent} / {shift.total}{t.people}</td>
+                  <td>{shift.absent}{t.people}</td>
                   <td>{shift.total ? (((shift.total - shift.absent) / shift.total) * 100).toFixed(1) : "0.0"}%</td>
                 </tr>
               ))}
@@ -627,23 +648,23 @@ export default function AttendanceDashboard() {
         </article>
       </div>
       <article className="pdf-block">
-        <h3>근태 사유</h3>
+        <h3>{t.reasons}</h3>
         <div className="pdf-reasons">
           {[
-            ["일반 결근", current.reasons.unplanned],
-            ["휴가 신청", current.reasons.approved],
-            ["지각", current.reasons.late],
-            ["조퇴", current.reasons.earlyLeave],
-            ["출산 휴가", current.reasons.maternity],
-            ["부서 이동", current.reasons.transfer],
-            ["퇴사", current.reasons.resigned],
+            [t.unplanned, current.reasons.unplanned],
+            [t.approved, current.reasons.approved],
+            [t.late, current.reasons.late],
+            [t.earlyLeave, current.reasons.earlyLeave],
+            [t.maternity, current.reasons.maternity],
+            [t.transfer, current.reasons.transfer],
+            [t.resigned, current.reasons.resigned],
           ].map(([label, value]) => (
             <div key={label}><strong>{value}</strong><span>{label}</span></div>
           ))}
         </div>
       </article>
       <article className="pdf-block">
-        <h3>최근 출근율 추이</h3>
+        <h3>{t.recentTrend}</h3>
         <div className="pdf-trend">
           {recentRecords.map((record) => (
             <div key={record.date}>
@@ -655,7 +676,7 @@ export default function AttendanceDashboard() {
         </div>
       </article>
       <footer>
-        <strong>{strongestUnit.name}</strong> 출근율이 {getUnitRate(strongestUnit).toFixed(1)}%로 가장 높습니다.
+        {t.bestUnitNote({ best: strongestUnit.name, bestRate: getUnitRate(strongestUnit).toFixed(1), critical: criticalUnit.name, absent: criticalUnit.total - criticalUnit.present })}
         <span>ACM Attendance Dashboard</span>
       </footer>
     </section>

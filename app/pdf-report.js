@@ -37,7 +37,8 @@ export const buildPdfReportBlob = async (element) => {
   return pdf.output("blob");
 };
 
-export const downloadPdfReport = async (element, date) => {
+export const downloadPdfReport = async (element, date, language = "ko") => {
   const blob = await buildPdfReportBlob(element);
-  downloadBlob(blob, `ACM_일일_출근_현황_${date}.pdf`);
+  const suffix = language === "vi" ? "bao_cao_di_lam" : "일일_출근_현황";
+  downloadBlob(blob, `ACM_${suffix}_${date}.pdf`);
 };
