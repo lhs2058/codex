@@ -2,19 +2,21 @@
   "name": "acm-ack-attendance",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start"
+    "dev": "vinext dev",
+    "build": "vinext build && node scripts/copy-hosting.mjs",
+    "start": "vinext start"
   },
   "dependencies": {
-    "next": "15.5.21",
-    "react": "19.1.1",
-    "react-dom": "19.1.1"
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
   },
-  "devDependencies": {},
-  "overrides": {
-    "postcss": "8.5.22",
-    "sharp": "0.35.3"
+  "devDependencies": {
+    "@vitejs/plugin-react": "6.0.0",
+    "@vitejs/plugin-rsc": "0.5.26",
+    "react-server-dom-webpack": "19.2.6",
+    "vinext": "1.0.0-beta.3",
+    "vite": "8.1.5"
   }
 }
