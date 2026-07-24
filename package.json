@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vinext dev",
     "build": "vinext build && node scripts/copy-hosting.mjs",
+    "build:pages": "vite build --config vite.pages.config.mjs",
     "start": "vinext start"
   },
   "dependencies": {
