@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import readExcelFile from "read-excel-file/browser";
 import attendanceData from "./attendance-data.json";
 import { parseAttendanceSheets } from "./attendance-import.js";
+import { downloadExcelReport } from "./excel-report.js";
+import { downloadPdfReport } from "./pdf-report.js";
 
 const STORAGE_KEY = "acm-attendance-import";
 
@@ -15,6 +17,8 @@ const Icon = ({ name, size = 20 }) => {
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" /></>,
     file: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 13h8M8 17h5" /></>,
     upload: <><path d="M12 16V4M7 9l5-5 5 5" /><path d="M5 20h14" /></>,
+    sheet: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 13h8M8 17h8M8 13v4M12 13v4" /></>,
+    pdf: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 15h1a2 2 0 0 0 0-4H8v6M13 17v-6h2a2 2 0 0 1 0 4h-2M18 11h3M18 14h2" /></>,
     bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /><path d="M13.7 21a2 2 0 0 1-3.4 0" /></>,
     arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
   };
@@ -79,7 +83,9 @@ export default function AttendanceDashboard() {
   const [selectedDate, setSelectedDate] = useState(attendanceData.at(-1).date);
   const [sourceName, setSourceName] = useState("7월 인력 현황.xlsx");
   const [importState, setImportState] = useState({ type: "", message: "" });
+  const [reportState, setReportState] = useState({ type: "", message: "" });
   const fileInputRef = useRef(null);
+  const reportRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -94,7 +100,11 @@ export default function AttendanceDashboard() {
         });
       }
     } catch {
-      localStorage.removeItem(STORAGE_KEY);
+      try {
+        localStorage.removeItem(STORAGE_KEY);
+      } catch {
+        // Some browsers restrict storage for file:// pages.
+      }
     }
   }, []);
 
@@ -110,13 +120,18 @@ export default function AttendanceDashboard() {
       setRecords(nextRecords);
       setSourceName(file.name);
       setSelectedDate(nextRecords.at(-1).date);
-      localStorage.setItem(
-        STORAGE_KEY,
-        JSON.stringify({ records: nextRecords, sourceName: file.name }),
-      );
+      let savedForRefresh = true;
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ records: nextRecords, sourceName: file.name }),
+        );
+      } catch {
+        savedForRefresh = false;
+      }
       setImportState({
         type: "success",
-        message: `${nextRecords.length}개 근무일 데이터를 업데이트했습니다.`,
+        message: `${nextRecords.length}개 근무일 데이터를 업데이트했습니다.${savedForRefresh ? "" : " 현재 실행 중인 화면에만 적용됩니다."}`,
       });
     } catch (error) {
       setImportState({
@@ -129,7 +144,11 @@ export default function AttendanceDashboard() {
   };
 
   const resetData = () => {
-    localStorage.removeItem(STORAGE_KEY);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // The in-memory data can still be reset when storage is unavailable.
+    }
     setRecords(attendanceData);
     setSourceName("7월 인력 현황.xlsx");
     setSelectedDate(attendanceData.at(-1).date);
@@ -153,8 +172,36 @@ export default function AttendanceDashboard() {
     (a, b) => getUnitRate(a) - getUnitRate(b),
   )[0];
   const unitAccent = { "ACM V0": "#1f4d3a", "ACM V5": "#d8ff3e", ACK: "#77a8ff" };
+  const recentRecords = records.slice(Math.max(0, selectedIndex - 6), selectedIndex + 1);
+
+  const exportExcel = () => {
+    try {
+      downloadExcelReport({ current, records, sourceName });
+      setReportState({
+        type: "success",
+        message: `${formatDate(current.date)} Excel 보고서를 저장했습니다.`,
+      });
+    } catch {
+      setReportState({ type: "error", message: "Excel 보고서를 만들지 못했습니다." });
+    }
+  };
+
+  const exportPdf = async () => {
+    if (!reportRef.current) return;
+    setReportState({ type: "loading", message: "PDF 보고서를 만들고 있습니다…" });
+    try {
+      await downloadPdfReport(reportRef.current, current.date);
+      setReportState({
+        type: "success",
+        message: `${formatDate(current.date)} PDF 보고서를 저장했습니다.`,
+      });
+    } catch {
+      setReportState({ type: "error", message: "PDF 보고서를 만들지 못했습니다." });
+    }
+  };
 
   return (
+    <>
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
@@ -206,6 +253,25 @@ export default function AttendanceDashboard() {
                 ))}
               </select>
             </label>
+            <button
+              className="report-button excel"
+              type="button"
+              aria-label="Excel 보고서 저장"
+              onClick={exportExcel}
+            >
+              <Icon name="sheet" size={17} />
+              <span>Excel 보고서</span>
+            </button>
+            <button
+              className="report-button pdf"
+              type="button"
+              aria-label="PDF 보고서 저장"
+              disabled={reportState.type === "loading"}
+              onClick={exportPdf}
+            >
+              <Icon name="pdf" size={17} />
+              <span>PDF 보고서</span>
+            </button>
             <button className="icon-button" aria-label="알림"><Icon name="bell" /></button>
             <div className="profile">HR</div>
           </div>
@@ -217,6 +283,12 @@ export default function AttendanceDashboard() {
             {records !== attendanceData && importState.type !== "loading" && (
               <button type="button" onClick={resetData}>기본 데이터 복원</button>
             )}
+          </div>
+        )}
+
+        {reportState.message && (
+          <div className={`import-notice report-notice ${reportState.type}`} role="status" aria-live="polite">
+            <span>{reportState.message}</span>
           </div>
         )}
 
@@ -327,5 +399,91 @@ export default function AttendanceDashboard() {
         </div>
       </section>
     </main>
+    <section ref={reportRef} className="pdf-report" aria-hidden="true">
+      <header className="pdf-report-head">
+        <div>
+          <p>ACM PEOPLE OPERATIONS</p>
+          <h2>ACM 일일 출근 현황</h2>
+        </div>
+        <span>{formatDate(current.date)}</span>
+      </header>
+      <div className="pdf-source">데이터 소스: {sourceName}</div>
+      <div className="pdf-kpis">
+        <article><span>재적 인원</span><strong>{current.total}<small>명</small></strong></article>
+        <article className="accent"><span>출근 인원</span><strong>{current.present}<small>명</small></strong></article>
+        <article><span>미출근</span><strong>{current.absent}<small>명</small></strong></article>
+        <article><span>출근율</span><strong>{current.rate.toFixed(1)}<small>%</small></strong></article>
+      </div>
+      <div className="pdf-columns">
+        <article className="pdf-block">
+          <h3>조직별 출근 현황</h3>
+          <table>
+            <thead><tr><th>조직</th><th>출근 / 재적</th><th>미출근</th><th>출근율</th></tr></thead>
+            <tbody>
+              {current.units.map((unit) => (
+                <tr key={unit.name}>
+                  <td>{unit.name}</td>
+                  <td>{unit.present} / {unit.total}명</td>
+                  <td>{unit.total - unit.present}명</td>
+                  <td>{getUnitRate(unit).toFixed(1)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </article>
+        <article className="pdf-block">
+          <h3>주간 · 야간 운영</h3>
+          <table>
+            <thead><tr><th>구분</th><th>출근 / 재적</th><th>미출근</th><th>출근율</th></tr></thead>
+            <tbody>
+              {[
+                { name: "주간 근무", total: current.shifts.dayTotal, absent: current.shifts.dayAbsent },
+                { name: "야간 근무", total: current.shifts.nightTotal, absent: current.shifts.nightAbsent },
+              ].map((shift) => (
+                <tr key={shift.name}>
+                  <td>{shift.name}</td>
+                  <td>{shift.total - shift.absent} / {shift.total}명</td>
+                  <td>{shift.absent}명</td>
+                  <td>{shift.total ? (((shift.total - shift.absent) / shift.total) * 100).toFixed(1) : "0.0"}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </article>
+      </div>
+      <article className="pdf-block">
+        <h3>근태 사유</h3>
+        <div className="pdf-reasons">
+          {[
+            ["일반 결근", current.reasons.unplanned],
+            ["휴가 신청", current.reasons.approved],
+            ["지각", current.reasons.late],
+            ["조퇴", current.reasons.earlyLeave],
+            ["출산 휴가", current.reasons.maternity],
+            ["부서 이동", current.reasons.transfer],
+            ["퇴사", current.reasons.resigned],
+          ].map(([label, value]) => (
+            <div key={label}><strong>{value}</strong><span>{label}</span></div>
+          ))}
+        </div>
+      </article>
+      <article className="pdf-block">
+        <h3>최근 출근율 추이</h3>
+        <div className="pdf-trend">
+          {recentRecords.map((record) => (
+            <div key={record.date}>
+              <span>{record.sheet}</span>
+              <i><em style={{ width: `${record.rate}%` }} /></i>
+              <strong>{record.rate.toFixed(1)}%</strong>
+            </div>
+          ))}
+        </div>
+      </article>
+      <footer>
+        <strong>{strongestUnit.name}</strong> 출근율이 {getUnitRate(strongestUnit).toFixed(1)}%로 가장 높습니다.
+        <span>ACM Attendance Dashboard</span>
+      </footer>
+    </section>
+    </>
   );
 }

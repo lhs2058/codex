@@ -1,6 +1,8 @@
 .next/
 dist/
 dist-pages/
+dist-standalone/
+output/
 node_modules/
 .pnpm-store/
 .runtime/
