@@ -22,6 +22,7 @@ describe("validateDowntime", () => {
     expect(validateDowntime([{ reasonId: "breakdown", startTime: "23:30", endTime: "00:15", note: "" }], 3600)).toEqual({ ok: true });
     expect(validateDowntime([{ reasonId: "breakdown", minutes: 1, startTime: "08:00", endTime: "08:01", note: "" }], 3600).ok).toBe(false);
   });
+  it("rejects fractional manual minutes", () => expect(productionEntrySchema.safeParse({ ...validDraft, downtime: [{ reasonId: "breakdown", minutes: 1.5, note: "" }] }).success).toBe(false));
 });
 
 describe("previewProductionMetrics", () => {

@@ -8,7 +8,7 @@ const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 const localTime = /^([01]\d|2[0-3]):[0-5]\d$/;
 const id = z.string().trim().min(1);
 const quantity = z.number().finite().int().nonnegative();
-const downtime = z.object({ reasonId: id, minutes: z.number().finite().nonnegative().optional(), startTime: z.string().regex(localTime).optional(), endTime: z.string().regex(localTime).optional(), note: z.string().max(1000) }).superRefine((value, ctx) => {
+const downtime = z.object({ reasonId: id, minutes: z.number().finite().int().nonnegative().optional(), startTime: z.string().regex(localTime).optional(), endTime: z.string().regex(localTime).optional(), note: z.string().max(1000) }).superRefine((value, ctx) => {
   const minutesMode = value.minutes !== undefined;
   const rangeMode = value.startTime !== undefined || value.endTime !== undefined;
   if (minutesMode === rangeMode || (rangeMode && (!value.startTime || !value.endTime))) ctx.addIssue({ code: "custom", message: "downtime_requires_exactly_one_mode" });

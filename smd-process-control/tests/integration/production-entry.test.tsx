@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ProductionEntryPage } from "../../src/features/entry/ProductionEntryPage";
 import type { MasterDataSnapshot } from "../../src/domain/types";
@@ -11,7 +11,7 @@ describe("ProductionEntryPage", () => {
     for (const [label, value] of [["Production date", "2026-07-28"], ["Shift", "s"], ["Time slot", "t"], ["Line", "l"], ["Model", "m"], ["Process", "p"], ["Input", "10"], ["Actual", "9"], ["OK", "9"], ["NG", "1"]] as const) fireEvent.change(screen.getByLabelText(label), { target: { value } });
     expect(await screen.findByText("Standard time: 10 sec/unit")).toBeInTheDocument();
     const saveButton = screen.getByRole("button", { name: "Save" }); fireEvent.click(saveButton); fireEvent.click(saveButton);
-    await waitFor(() => expect(saveProductionRecord).toHaveBeenCalledTimes(1)); resolve("r1");
+    await waitFor(() => expect(saveProductionRecord).toHaveBeenCalledTimes(1)); await act(async () => { resolve("r1"); });
   });
   it("preserves draft and shows Korean conflict message and comparison", async () => {
     render(<ProductionEntryPage masterRepository={{ listMasterData: vi.fn().mockResolvedValue(master) }} productionRepository={{ saveProductionRecord: vi.fn().mockRejectedValue({ code: "40001" }) }} qualityRepository={{ findExisting: vi.fn().mockResolvedValue({ id: "old", inputQty: 8, actualQty: 7, okQty: 7, ngQty: 1, version: 2 }) }} />);
