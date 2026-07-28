@@ -27,8 +27,11 @@ export const productionEntrySchema: z.ZodType<ProductionEntryDraft> = z.object({
 });
 
 function downtimeSeconds(row: DowntimeDraft): number | null {
-  if (row.minutes !== undefined) return Number.isFinite(row.minutes) && row.minutes >= 0 ? row.minutes * 60 : null;
-  if (!row.startTime || !row.endTime || !localTime.test(row.startTime) || !localTime.test(row.endTime)) return null;
+  const hasMinutes = row.minutes !== undefined;
+  const hasStart = row.startTime !== undefined;
+  const hasEnd = row.endTime !== undefined;
+  if (hasMinutes) return !hasStart && !hasEnd && Number.isFinite(row.minutes) && Number.isInteger(row.minutes) && row.minutes >= 0 ? row.minutes * 60 : null;
+  if (!hasStart || !hasEnd || !row.startTime || !row.endTime || !localTime.test(row.startTime) || !localTime.test(row.endTime)) return null;
   const [sh, sm] = row.startTime.split(":").map(Number); const [eh, em] = row.endTime.split(":").map(Number);
   const start = sh * 3600 + sm * 60; const end = eh * 3600 + em * 60;
   return end >= start ? end - start : end + 86400 - start;

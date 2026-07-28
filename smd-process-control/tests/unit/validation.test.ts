@@ -24,6 +24,7 @@ describe("validateDowntime", () => {
   });
   it("rejects fractional manual minutes", () => expect(productionEntrySchema.safeParse({ ...validDraft, downtime: [{ reasonId: "breakdown", minutes: 1.5, note: "" }] }).success).toBe(false));
   it("shares overnight minute duration for range and manual rows", () => expect([downtimeDurationMinutes({ reasonId: "a", startTime: "23:30", endTime: "00:15", note: "" }), downtimeDurationMinutes({ reasonId: "b", minutes: 5, note: "" })]).toEqual([45, 5]));
+  it("treats mixed, incomplete, fractional, and negative downtime modes as invalid", () => expect([downtimeDurationMinutes({ reasonId: "a", minutes: 1, startTime: "08:00", endTime: "08:01", note: "" }), downtimeDurationMinutes({ reasonId: "a", startTime: "08:00", note: "" }), downtimeDurationMinutes({ reasonId: "a", minutes: 1.5, note: "" }), downtimeDurationMinutes({ reasonId: "a", minutes: -1, note: "" })]).toEqual([null, null, null, null]));
 });
 
 describe("previewProductionMetrics", () => {

@@ -43,12 +43,12 @@ select throws_ok(
   '42501',
   'operator cannot write master data'
 );
-select lives_ok(
+select throws_ok(
   $$insert into public.production_records (production_date, shift_id, time_slot_id, line_id, model_id, process_id, created_by, updated_by)
     values ((now() at time zone 'Asia/Bangkok')::date, '00000000-0000-0000-0000-000000000203',
       '00000000-0000-0000-0000-000000000204', '00000000-0000-0000-0000-000000000202',
       '00000000-0000-0000-0000-000000000201', (select id from public.processes where code = 'SPI'), auth.uid(), auth.uid())$$,
-  'operator can create own production record'
+  '42501', 'operator cannot bypass atomic production RPC'
 );
 select throws_ok(
   $$select public.save_production_record(jsonb_build_object(
@@ -79,7 +79,7 @@ select is_empty(
 );
 select throws_ok(
   $$update public.production_records set line_id = '00000000-0000-0000-0000-000000000205' where created_by = auth.uid()$$,
-  '22023', 'production_record_dimensions_immutable', 'direct production dimension edits are rejected'
+  '42501', 'direct production edits are denied'
 );
 select is_empty(
   $$select * from public.production_records where deleted_at is not null$$,
@@ -121,6 +121,8 @@ select ok(
   exists (select 1 from public.audit_logs where actor_id = auth.uid() and table_name = 'production_records' and action = 'insert' and after_data ? 'input_qty'),
   'audit records actor, action, and after data for committed production'
 );
+-- Privileged fixture setup: authenticated roles cannot directly mutate protected records.
+reset role;
 insert into public.defect_records (quality_record_id, defect_type, classification, quantity, created_by, updated_by)
 select id, 'Test defect', 'real', 1, auth.uid(), auth.uid()
 from public.quality_records where production_record_id = (
@@ -129,6 +131,8 @@ from public.quality_records where production_record_id = (
 insert into public.downtime_records (production_record_id, reason_id, minutes, created_by, updated_by)
 select id, '00000000-0000-0000-0000-000000000209', 5, auth.uid(), auth.uid()
 from public.production_records where line_id = '00000000-0000-0000-0000-000000000205' and deleted_at is null;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000103', true);
 insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
 values ('00000000-0000-0000-0000-000000000210', 'replace-zero.xlsx', 'test/replace-zero.xlsx', 'standard', auth.uid(), auth.uid());
 insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, created_by, updated_by)
