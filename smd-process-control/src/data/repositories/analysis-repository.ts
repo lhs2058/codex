@@ -7,7 +7,7 @@ import type {
   MetricResult,
   ProcessCode,
 } from "../../domain/types";
-import { createMasterDataRepository, findEffectiveStandardTime, type AnalysisMasterDataRepository } from "./master-data-repository";
+import { createMasterDataRepository, findEffectiveStandardTime, type HistoricalMasterDataRepository } from "./master-data-repository";
 import {
   createProductionRepository,
   type DashboardProductionRecord,
@@ -31,7 +31,7 @@ export interface AnalysisLoadOptions {
 }
 
 interface AnalysisDependencies {
-  master: AnalysisMasterDataRepository;
+  master: HistoricalMasterDataRepository;
   production: Pick<ProductionRepository, "listDashboardProduction">;
   quality: {
     listDashboardQuality(filters: DashboardQualityFilters): Promise<DashboardQualityRecord[]>;
@@ -227,7 +227,7 @@ export function createAnalysisRepository(dependencies?: Partial<AnalysisDependen
   return {
     async loadAnalysis(filters, options = {}) {
       throwIfAborted(options.signal);
-      const master = await masterRepository.listAnalysisMasterData();
+      const master = await masterRepository.listHistoricalMasterData();
       throwIfAborted(options.signal);
       const selectedProcessId = processId(filters, master);
       const byDate = await mapWithConcurrency(dates(filters.from, filters.to), async (date) => {

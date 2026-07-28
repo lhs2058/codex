@@ -54,40 +54,24 @@ function production(id: string, productionDate: string, inputQty: number, actual
 }
 
 describe("analysis repository", () => {
-  it("queries non-deleted history master rows without applying the active-only entry filter", async () => {
-    const tableRows: Record<string, unknown[]> = {
-      models: [{ id: "model-old", code: "OLD", name: "Old model", is_active: false, version: 2 }],
-      processes: [{ id: "process-old", code: "ICT", name: "Old process", is_active: false, version: 2 }],
-      lines: [{ id: "line-old", code: "OLD", name: "Old line", is_active: false, version: 2 }],
-      shifts: [{ id: "shift-old", code: "OLD", name: "Old shift", is_active: false, version: 2 }],
-      time_slots: [{ id: "slot-old", shift_id: "shift-old", code: "Z", starts_at: "08:00", ends_at: "09:00", end_day_offset: 0, sequence: 9, is_active: false, version: 2 }],
-      downtime_reasons: [{ id: "reason-old", code: "OLD", name: "Legacy stop", is_active: false, version: 2 }],
-      standard_times: [{ id: "st-old", model_id: "model-old", process_id: "process-old", line_id: "line-old", seconds_per_unit: 60, effective_from: "2025-01-01", effective_to: null }],
-    };
-    const activeFilters: string[] = [];
-    const deletedFilters: string[] = [];
-    const client = {
-      from: vi.fn((table: string) => {
-        const query: any = {
-          select: vi.fn(() => query),
-          is: vi.fn((column: string) => {
-            if (column === "deleted_at") deletedFilters.push(table);
-            return query;
-          }),
-          eq: vi.fn((column: string) => {
-            if (column === "is_active") activeFilters.push(table);
-            return query;
-          }),
-          order: vi.fn(() => Promise.resolve({ data: tableRows[table], error: null })),
-        };
-        return query;
-      }),
-    };
+  it("loads inactive historical masters through the dedicated RPC contract", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        models: [{ id: "model-old", code: "OLD", name: "Old model", is_active: false, version: 2 }],
+        processes: [{ id: "process-old", code: "ICT", name: "Old process", is_active: false, version: 2 }],
+        lines: [{ id: "line-old", code: "OLD", name: "Old line", is_active: false, version: 2 }],
+        shifts: [{ id: "shift-old", code: "OLD", name: "Old shift", is_active: false, version: 2 }],
+        time_slots: [{ id: "slot-old", shift_id: "shift-old", code: "Z", starts_at: "08:00", ends_at: "09:00", end_day_offset: 0, sequence: 9 }],
+        downtime_reasons: [{ id: "reason-old", code: "OLD", name: "Legacy stop", is_active: false, version: 2 }],
+        standard_times: [{ id: "st-old", model_id: "model-old", process_id: "process-old", line_id: "line-old", seconds_per_unit: 60, effective_from: "2025-01-01", effective_to: null }],
+      },
+      error: null,
+    });
+    const client = { rpc, from: vi.fn(() => { throw new Error("history_must_not_query_tables"); }) };
 
-    const result = await createMasterDataRepository(client as any).listAnalysisMasterData();
+    const result = await createMasterDataRepository(client as any).listHistoricalMasterData();
 
-    expect(activeFilters).toEqual([]);
-    expect(deletedFilters).toHaveLength(7);
+    expect(rpc).toHaveBeenCalledWith("list_historical_master_data");
     expect(result).toEqual(expect.objectContaining({
       models: [expect.objectContaining({ code: "OLD", active: false })],
       processes: [expect.objectContaining({ code: "ICT", active: false })],
@@ -97,6 +81,41 @@ describe("analysis repository", () => {
       downtimeReasons: [expect.objectContaining({ name: "Legacy stop", active: false })],
       standardTimes: [expect.objectContaining({ secondsPerUnit: 60 })],
     }));
+  });
+
+  it("keeps the normal master snapshot on active-only table reads", async () => {
+    const activeFilters: string[] = [];
+    const rowsByTable: Record<string, unknown[]> = {
+      models: [{ id: "model-a", code: "A", name: "Active model", is_active: true, version: 1 }],
+      processes: [{ id: "process-a", code: "AOI", name: "Active process", is_active: true, version: 1 }],
+      lines: [{ id: "line-a", code: "A", name: "Active line", is_active: true, version: 1 }],
+      shifts: [{ id: "shift-a", code: "A", name: "Active shift", is_active: true, version: 1 }],
+      time_slots: [{ id: "slot-a", shift_id: "shift-a", code: "A", starts_at: "08:00", ends_at: "09:00", end_day_offset: 0, sequence: 1 }],
+      downtime_reasons: [{ id: "reason-a", code: "A", name: "Active reason", is_active: true, version: 1 }],
+      standard_times: [],
+    };
+    const client = {
+      rpc: vi.fn(() => { throw new Error("active_snapshot_must_not_call_history_rpc"); }),
+      from: vi.fn((table: string) => {
+        const query: any = {
+          select: vi.fn(() => query),
+          is: vi.fn(() => query),
+          eq: vi.fn((column: string) => {
+            if (column === "is_active") activeFilters.push(table);
+            return query;
+          }),
+          order: vi.fn(() => Promise.resolve({ data: rowsByTable[table], error: null })),
+        };
+        return query;
+      }),
+    };
+
+    const result = await createMasterDataRepository(client as any).listMasterData();
+
+    expect(activeFilters.sort()).toEqual([
+      "downtime_reasons", "lines", "models", "processes", "shifts", "time_slots",
+    ]);
+    expect(result.models).toEqual([expect.objectContaining({ code: "A", active: true })]);
   });
 
   it("groups day, ISO week, and month while preserving filter contracts and target misses", async () => {
@@ -112,7 +131,7 @@ describe("analysis repository", () => {
     const listDashboardQuality = vi.fn(({ productionRecordIds }) =>
       Promise.resolve(productionRecordIds.map((id: string) => qualities.get(id)).filter(Boolean)));
     const repository = createAnalysisRepository({
-      master: { listAnalysisMasterData: vi.fn().mockResolvedValue(master) },
+      master: { listHistoricalMasterData: vi.fn().mockResolvedValue(master) },
       production: { listDashboardProduction },
       quality: {
         listDashboardQuality,
@@ -168,7 +187,7 @@ describe("analysis repository", () => {
 
   it("sorts aggregated defect quantities descending", async () => {
     const repository = createAnalysisRepository({
-      master: { listAnalysisMasterData: vi.fn().mockResolvedValue(master) },
+      master: { listHistoricalMasterData: vi.fn().mockResolvedValue(master) },
       production: { listDashboardProduction: vi.fn(({ productionDate }) =>
         Promise.resolve(productionDate === "2026-07-27" ? [production("p-1", productionDate, 100, 80)] : [])) },
       quality: {
@@ -205,7 +224,7 @@ describe("analysis repository", () => {
       return [production(`p-${productionDate}`, productionDate, 10, 8)];
     });
     const repository = createAnalysisRepository({
-      master: { listAnalysisMasterData: vi.fn().mockResolvedValue(master) },
+      master: { listHistoricalMasterData: vi.fn().mockResolvedValue(master) },
       production: { listDashboardProduction },
       quality: {
         listDashboardQuality: vi.fn(({ productionDate }) => Promise.resolve([{
@@ -243,7 +262,7 @@ describe("analysis repository", () => {
       return [];
     });
     const repository = createAnalysisRepository({
-      master: { listAnalysisMasterData: vi.fn().mockResolvedValue(master) },
+      master: { listHistoricalMasterData: vi.fn().mockResolvedValue(master) },
       production: { listDashboardProduction },
       quality: {
         listDashboardQuality: vi.fn().mockResolvedValue([]),
@@ -298,7 +317,7 @@ describe("analysis repository", () => {
       downtime: [{ reasonId: "reason-old", minutes: 10 }],
     };
     const repository = createAnalysisRepository({
-      master: { listAnalysisMasterData: vi.fn().mockResolvedValue(history) },
+      master: { listHistoricalMasterData: vi.fn().mockResolvedValue(history) },
       production: { listDashboardProduction: vi.fn().mockResolvedValue([historicalRecord]) },
       quality: {
         listDashboardQuality: vi.fn().mockResolvedValue([{

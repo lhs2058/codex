@@ -1,6 +1,6 @@
 begin;
 
-select plan(25);
+select plan(33);
 
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at)
 values
@@ -27,9 +27,65 @@ values ('00000000-0000-0000-0000-000000000204', '00000000-0000-0000-0000-0000000
 insert into public.downtime_reasons (id, code, name)
 values ('00000000-0000-0000-0000-000000000209', 'TEST-DT', 'Test downtime');
 
+insert into public.models (id, code, name, is_active)
+values ('00000000-0000-0000-0000-000000000301', 'HIST-MODEL', 'Historical model', false);
+update public.processes set is_active = false where code = 'ICT';
+insert into public.lines (id, code, name, is_active)
+values ('00000000-0000-0000-0000-000000000302', 'HIST-LINE', 'Historical line', false);
+insert into public.shifts (id, code, name, is_active)
+values ('00000000-0000-0000-0000-000000000303', 'HIST-SHIFT', 'Historical shift', false);
+insert into public.time_slots (id, shift_id, code, starts_at, ends_at, sequence, is_active)
+values ('00000000-0000-0000-0000-000000000304', '00000000-0000-0000-0000-000000000303', 'HIST-SLOT', '09:00', '10:00', 99, false);
+insert into public.downtime_reasons (id, code, name, is_active)
+values ('00000000-0000-0000-0000-000000000305', 'HIST-DT', 'Historical downtime', false);
+insert into public.standard_times (
+  id, model_id, process_id, line_id, seconds_per_unit, effective_from, effective_to
+)
+values (
+  '00000000-0000-0000-0000-000000000306',
+  '00000000-0000-0000-0000-000000000301',
+  (select id from public.processes where code = 'ICT'),
+  '00000000-0000-0000-0000-000000000302',
+  60, '2025-01-01', null
+);
+
+set local role anon;
+select throws_ok(
+  $$select public.list_historical_master_data()$$,
+  '42501',
+  'anonymous callers cannot execute the historical master RPC'
+);
+
 set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000199', true);
+select throws_ok(
+  $$select public.list_historical_master_data()$$,
+  '42501',
+  'authenticated callers without an active application profile are denied'
+);
+
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000101', true);
 select is(public.current_app_role(), 'viewer', 'viewer role is read-only');
+select ok(
+  (snapshot -> 'models') @> '[{"code":"HIST-MODEL","is_active":false}]'::jsonb
+  and (snapshot -> 'processes') @> '[{"code":"ICT","is_active":false}]'::jsonb
+  and (snapshot -> 'lines') @> '[{"code":"HIST-LINE","is_active":false}]'::jsonb
+  and (snapshot -> 'shifts') @> '[{"code":"HIST-SHIFT","is_active":false}]'::jsonb
+  and (snapshot -> 'time_slots') @> '[{"code":"HIST-SLOT"}]'::jsonb
+  and (snapshot -> 'downtime_reasons') @> '[{"code":"HIST-DT","is_active":false}]'::jsonb
+  and (snapshot -> 'standard_times') @> '[{"seconds_per_unit":60}]'::jsonb,
+  'viewer reads inactive historical labels, slots, reasons, and standard times only through the RPC'
+)
+from (select public.list_historical_master_data() snapshot) history;
+select is_empty(
+  $$select code from public.models where code = 'HIST-MODEL'
+    union all select code from public.processes where code = 'ICT'
+    union all select code from public.lines where code = 'HIST-LINE'
+    union all select code from public.shifts where code = 'HIST-SHIFT'
+    union all select code from public.time_slots where code = 'HIST-SLOT'
+    union all select code from public.downtime_reasons where code = 'HIST-DT'$$,
+  'viewer normal master reads remain active-only'
+);
 select throws_ok(
   $$insert into public.models(code, name) values ('PE-35', 'PE-35')$$,
   '42501',
@@ -38,6 +94,26 @@ select throws_ok(
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000102', true);
 select is(public.current_app_role(), 'operator', 'operator role is resolved from profiles');
+select ok(
+  (snapshot -> 'models') @> '[{"code":"HIST-MODEL","is_active":false}]'::jsonb
+  and (snapshot -> 'processes') @> '[{"code":"ICT","is_active":false}]'::jsonb
+  and (snapshot -> 'lines') @> '[{"code":"HIST-LINE","is_active":false}]'::jsonb
+  and (snapshot -> 'shifts') @> '[{"code":"HIST-SHIFT","is_active":false}]'::jsonb
+  and (snapshot -> 'time_slots') @> '[{"code":"HIST-SLOT"}]'::jsonb
+  and (snapshot -> 'downtime_reasons') @> '[{"code":"HIST-DT","is_active":false}]'::jsonb
+  and (snapshot -> 'standard_times') @> '[{"seconds_per_unit":60}]'::jsonb,
+  'operator reads inactive historical labels, slots, reasons, and standard times only through the RPC'
+)
+from (select public.list_historical_master_data() snapshot) history;
+select is_empty(
+  $$select code from public.models where code = 'HIST-MODEL'
+    union all select code from public.processes where code = 'ICT'
+    union all select code from public.lines where code = 'HIST-LINE'
+    union all select code from public.shifts where code = 'HIST-SHIFT'
+    union all select code from public.time_slots where code = 'HIST-SLOT'
+    union all select code from public.downtime_reasons where code = 'HIST-DT'$$,
+  'operator normal master reads remain active-only'
+);
 select throws_ok(
   $$insert into public.models(code, name) values ('PE-36', 'PE-36')$$,
   '42501',
@@ -104,6 +180,17 @@ select throws_ok(
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000103', true);
 select is(public.current_app_role(), 'admin', 'admin role is resolved from profiles');
+select ok(
+  (snapshot -> 'models') @> '[{"code":"HIST-MODEL","is_active":false}]'::jsonb
+  and (snapshot -> 'processes') @> '[{"code":"ICT","is_active":false}]'::jsonb
+  and (snapshot -> 'lines') @> '[{"code":"HIST-LINE","is_active":false}]'::jsonb
+  and (snapshot -> 'shifts') @> '[{"code":"HIST-SHIFT","is_active":false}]'::jsonb
+  and (snapshot -> 'time_slots') @> '[{"code":"HIST-SLOT"}]'::jsonb
+  and (snapshot -> 'downtime_reasons') @> '[{"code":"HIST-DT","is_active":false}]'::jsonb
+  and (snapshot -> 'standard_times') @> '[{"seconds_per_unit":60}]'::jsonb,
+  'admin reads inactive historical labels, slots, reasons, and standard times through the RPC'
+)
+from (select public.list_historical_master_data() snapshot) history;
 select lives_ok(
   $$insert into public.models(code, name) values ('PE-37', 'PE-37')$$,
   'admin can write master data'
@@ -168,5 +255,10 @@ select is_empty(
 );
 
 reset role;
+select ok(
+  not has_function_privilege('anon', 'public.list_historical_master_data()', 'execute')
+  and has_function_privilege('authenticated', 'public.list_historical_master_data()', 'execute'),
+  'historical master RPC execute privilege is restricted to authenticated'
+);
 select finish();
 rollback;
