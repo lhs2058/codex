@@ -1,6 +1,6 @@
 begin;
 
-select plan(12);
+select plan(17);
 
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at)
 values
@@ -71,6 +71,18 @@ select throws_ok(
   $$delete from public.production_records where created_by = auth.uid()$$,
   '42501', 'operators cannot physically delete production records'
 );
+insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
+values ('00000000-0000-0000-0000-000000000206', 'test.xlsx', 'test/test.xlsx', 'standard', auth.uid(), auth.uid());
+select throws_ok(
+  $$update public.upload_batches set status = 'committed' where id = '00000000-0000-0000-0000-000000000206'$$,
+  '42501', 'clients cannot forge a committed upload batch'
+);
+select throws_ok(
+  $$insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, production_record_id, created_by, updated_by)
+    select '00000000-0000-0000-0000-000000000206', 'Production', 2, '{}'::jsonb, 'new', id, auth.uid(), auth.uid()
+    from public.production_records where created_by = auth.uid() limit 1$$,
+  '42501', 'clients cannot forge a staged row target record'
+);
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000103', true);
 select is(public.current_app_role(), 'admin', 'admin role is resolved from profiles');
@@ -78,6 +90,24 @@ select lives_ok(
   $$insert into public.models(code, name) values ('PE-37', 'PE-37')$$,
   'admin can write master data'
 );
+insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
+values ('00000000-0000-0000-0000-000000000207', 'camel.xlsx', 'test/camel.xlsx', 'standard', auth.uid(), auth.uid());
+insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, created_by, updated_by)
+values ('00000000-0000-0000-0000-000000000207', 'Production', 2,
+  jsonb_build_object('sourceSheet','Production','sourceRow',2,'productionDate',(now() at time zone 'Asia/Bangkok')::date,
+    'shiftCode','TEST-SHIFT','timeSlotCode','TEST-SLOT','lineCode','TEST-LINE-2','modelCode','TEST-MODEL','processCode','SPI',
+    'inputQty',2,'actualQty',2,'okQty',2,'ngQty',0,'downtimeMinutes',0,'downtimeReasonCode',null,'note','camel'),
+  'new', auth.uid(), auth.uid());
+select lives_ok($$select public.commit_upload_batch('00000000-0000-0000-0000-000000000207', false)$$, 'exact camelCase normalized payload commits');
+select ok(
+  exists (select 1 from public.audit_logs where actor_id = auth.uid() and table_name = 'production_records' and action = 'insert' and after_data ? 'input_qty'),
+  'audit records actor, action, and after data for committed production'
+);
+insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
+values ('00000000-0000-0000-0000-000000000208', 'snake.xlsx', 'test/snake.xlsx', 'standard', auth.uid(), auth.uid());
+insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, created_by, updated_by)
+values ('00000000-0000-0000-0000-000000000208', 'Production', 3, jsonb_build_object('source_sheet','Production'), 'new', auth.uid(), auth.uid());
+select throws_ok($$select public.commit_upload_batch('00000000-0000-0000-0000-000000000208', false)$$, '22023', 'upload_batch_has_errors', 'snake_case or unknown payload keys are rejected');
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000102', true);
 select is_empty(

@@ -1,6 +1,6 @@
 begin;
 
-select plan(16);
+select plan(20);
 
 select has_function('public', 'current_app_role', array[]::text[], 'current_app_role exists');
 select function_returns('public', 'current_app_role', array[]::text[], 'text', 'current_app_role returns text');
@@ -36,6 +36,16 @@ select is(
   false,
   'clients cannot mark a batch committed directly'
 );
+select is(
+  has_table_privilege('authenticated', 'public.upload_batches', 'UPDATE'),
+  false,
+  'clients have no effective batch update privilege'
+);
+select is(
+  has_table_privilege('authenticated', 'public.upload_rows', 'UPDATE'),
+  false,
+  'clients have no effective upload row update privilege'
+);
 
 -- Concurrent sessions are unavailable in the local pgTAP runner. The migration
 -- contract is asserted statically: every upload natural key takes a transaction
@@ -49,6 +59,16 @@ select like(
   pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),
   '%model_code%',
   'upload RPC resolves normalized model codes rather than client-supplied IDs'
+);
+select like(
+  pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),
+  '%sourceSheet%',
+  'upload RPC accepts the camelCase NormalizedImportRow contract'
+);
+select unlike(
+  pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),
+  '%model_code%',
+  'upload RPC rejects the legacy snake_case payload contract'
 );
 
 select finish();
