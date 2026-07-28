@@ -1,8 +1,19 @@
 import type { ImportParseResult, WorkbookSheet } from "../contracts";
 import { normalizeLineName, normalizeProductionDate, normalizeQuantity } from "../normalize";
+import { parseHeaderQualityWorkbook } from "./header-quality-adapter";
 
 const boundary = (row: unknown[]) => row.some((cell) => /\b(total|ttl|section|header)\b/i.test(String(cell ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")));
 export function parseSpiWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
+  const usesLegacyModelHeader = sheets.some(({ sheet, data }) =>
+    /^spi model$/i.test(sheet.trim())
+    && data.some((row) => row.some((cell) => String(cell ?? "").trim().toLowerCase() === "model")));
+  const headerResult = usesLegacyModelHeader ? null : parseHeaderQualityWorkbook(sheets, {
+    kind: "spi",
+    processCode: "SPI",
+    sheetName: (name) => /^spi\s+(model|line)\.?$/i.test(name),
+    title: (value) => /hieu suat may\s*spi/.test(value),
+  });
+  if (headerResult) return headerResult;
   const rows: ImportParseResult["rows"] = [], diagnostics: ImportParseResult["diagnostics"] = [];
   for (const sheet of sheets.filter((s) => /^(SPI MODEL|SPI Line)$/i.test(s.sheet)).sort((a, b) => a.sheet.localeCompare(b.sheet))) {
     const title = sheet.data.findIndex((r) => String(r[1] ?? r[2] ?? "").includes("Hiệu Suất Máy SPI"));

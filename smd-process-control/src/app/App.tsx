@@ -9,6 +9,7 @@ export function App() {
   const responsiveTest = responsiveFixturesEnabled(
     import.meta.env.DEV,
     import.meta.env.VITE_RESPONSIVE_TEST === "true",
+    new URLSearchParams(globalThis.location?.search).has("responsive-test"),
   );
   const requestedLanguage = globalThis.location?.search.includes("language=vi") ? "vi" : "ko";
   const auth = responsiveTest

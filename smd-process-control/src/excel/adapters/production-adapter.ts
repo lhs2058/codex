@@ -9,7 +9,7 @@ const folded = (value: unknown) => text(value).normalize("NFD").replace(/[\u0300
 export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
   const rows: ImportParseResult["rows"] = [];
   const diagnostics: ImportParseResult["diagnostics"] = [];
-  for (const sheet of sheets.filter((value) => /^\d{2}\.\d{2}$/.test(value.sheet))) {
+  for (const sheet of sheets.filter((value) => /^\d{2}\.\d{1,2}$/.test(value.sheet))) {
     const layout = findProductionGroupedLayout(sheet);
     const title = layout ? sheet.data[layout.titleRow]?.find((cell) => typeof cell === "string" && /bao cao san luong.*ngay/i.test(folded(cell))) : undefined;
     const date = typeof title === "string" ? title.match(/(\d{2})\/(\d{2})\/(\d{4})/) : null;

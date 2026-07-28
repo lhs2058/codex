@@ -7,6 +7,7 @@ export function AppProviders({ children }: PropsWithChildren) {
   const responsiveTest = responsiveFixturesEnabled(
     import.meta.env.DEV,
     import.meta.env.VITE_RESPONSIVE_TEST === "true",
+    new URLSearchParams(globalThis.location?.search).has("responsive-test"),
   );
   if (responsiveTest) return <>{children}</>;
   return <AuthProvider client={getSupabaseClient() as unknown as Parameters<typeof AuthProvider>[0]["client"]}>{children}</AuthProvider>;
