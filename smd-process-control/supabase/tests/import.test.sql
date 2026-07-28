@@ -1,6 +1,6 @@
 begin;
 
-select plan(19);
+select plan(20);
 
 select has_function('public', 'current_app_role', array[]::text[], 'current_app_role exists');
 select function_returns('public', 'current_app_role', array[]::text[], 'text', 'current_app_role returns text');
@@ -17,6 +17,11 @@ select is(
   has_function_privilege('anon', 'public.commit_upload_batch(uuid, boolean)', 'EXECUTE'),
   false,
   'anon cannot execute upload commit RPC'
+);
+select is(
+  has_function_privilege('authenticated', 'private.retire_quality_defects()', 'EXECUTE'),
+  false,
+  'authenticated cannot execute the private defect-retirement trigger helper'
 );
 select has_trigger('public', 'production_records', 'production_records_audit', 'production mutations are audited');
 select has_trigger('public', 'upload_batches', 'upload_batches_guard', 'batch status transitions are guarded');
