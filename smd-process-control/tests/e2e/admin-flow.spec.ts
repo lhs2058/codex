@@ -8,10 +8,14 @@ test("admin manages model and standard time, then explicitly replaces duplicate 
 
   await page.getByLabel("모델 코드").fill(requiredEnv("E2E_ADMIN_MODEL_CODE"));
   await page.getByLabel("모델명").fill(requiredEnv("E2E_ADMIN_MODEL_NAME"));
+  const modelResponse = page.waitForResponse((response) =>
+    response.request().method() === "POST" && response.url().includes("/rest/v1/models"));
   await page.getByRole("button", { name: "모델 추가" }).click();
+  const createdModel = await (await modelResponse).json() as { id?: string };
+  expect(createdModel.id).toMatch(/^[0-9a-f-]{36}$/);
   await expect(page.getByLabel("모델 코드")).toHaveValue("");
 
-  await page.getByLabel("표준시간 모델").fill(requiredEnv("E2E_ST_MODEL_ID"));
+  await page.getByLabel("표준시간 모델").fill(createdModel.id!);
   await page.getByLabel("공정", { exact: true }).selectOption({ label: requiredEnv("E2E_PROCESS_LABEL") });
   await page.getByLabel("라인", { exact: true }).selectOption({ label: requiredEnv("E2E_LINE_LABEL") });
   await page.getByLabel("개당 초").fill(requiredEnv("E2E_ST_SECONDS"));

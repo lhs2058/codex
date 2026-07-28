@@ -368,6 +368,9 @@ describe("DashboardPage", () => {
     />);
 
     expect(await screen.findByRole("heading", { name: "통합 생산 대시보드" })).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-main")).toHaveAttribute("data-dashboard-state", "ready");
+    expect(screen.getByTestId("dashboard-main")).toHaveAttribute("data-dashboard-date", "2026-07-28");
+    expect(screen.getByTestId("dashboard-main")).toHaveAttribute("data-dashboard-total-actual", "1234");
     expect(screen.getByLabelText("대시보드 메뉴")).toBeInTheDocument();
     expect(screen.getByText("금일 총 실적")).toBeInTheDocument();
     expect(screen.getByText("평균 공정 수율")).toBeInTheDocument();

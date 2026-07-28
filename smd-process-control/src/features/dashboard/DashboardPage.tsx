@@ -129,7 +129,13 @@ export function DashboardPage({
     setFilters((current) => ({ ...current, [key]: value }));
   }, []);
 
-  const content = <main className="dashboard-main">
+  const content = <main
+    className="dashboard-main"
+    data-testid="dashboard-main"
+    data-dashboard-state={loading ? "loading" : error ? "error" : "ready"}
+    data-dashboard-date={filters.productionDate}
+    data-dashboard-total-actual={snapshot?.totalActual}
+  >
     <header className="dashboard-topbar">
       <div><p className="dashboard-eyebrow">SMD PROCESS CONTROL</p><h1>{t("dashboard.title")}</h1><p>{t("dashboard.description")}</p></div>
       <span className="dashboard-live"><i aria-hidden="true" /> LIVE</span>

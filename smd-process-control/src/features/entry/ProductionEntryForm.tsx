@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { previewProductionMetrics, productionEntrySchema, validateDowntime } from "../../domain/validation";
 import type { MasterDataSnapshot, ProductionEntryDraft } from "../../domain/types";
 import type { ProductionRepository } from "../../data/repositories/production-repository";
+import type { ExistingProductionRecord } from "../../data/repositories/quality-repository";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { DowntimeEditor } from "./DowntimeEditor";
 
@@ -63,18 +64,23 @@ const fieldKeys = {
 export function ProductionEntryForm({
   masterData,
   repository,
+  findExisting,
   onConflict,
 }: {
   masterData: MasterDataSnapshot;
   repository: ProductionRepository;
-  onConflict(draft: ProductionEntryDraft): Promise<void>;
+  findExisting?(draft: Pick<ProductionEntryDraft, "productionDate" | "shiftId" | "timeSlotId" | "lineId" | "modelId" | "processId">): Promise<ExistingProductionRecord | null>;
+  onConflict(draft: ProductionEntryDraft, expectedVersion: number): Promise<void>;
 }) {
   const { t } = useI18n(legacy);
   const [draft, setDraft] = useState(blank);
   const [saving, setSaving] = useState(false);
+  const [lookupState, setLookupState] = useState<"incomplete" | "loading" | "new" | "existing" | "error">("incomplete");
+  const [editing, setEditing] = useState<{ id: string; version: number } | null>(null);
   const [message, setMessage] = useState("");
   const [showErrors, setShowErrors] = useState(false);
   const submitting = useRef(false);
+  const lookupGeneration = useRef(0);
   const formRef = useRef<HTMLFormElement>(null);
   const parsed = productionEntrySchema.safeParse(draft);
   const preview = useMemo(
@@ -135,9 +141,64 @@ export function ProductionEntryForm({
   useEffect(() => {
     if (showErrors) focusFirstInvalid();
   }, [showErrors]);
+  useEffect(() => {
+    const naturalKey = {
+      productionDate: draft.productionDate,
+      shiftId: draft.shiftId,
+      timeSlotId: draft.timeSlotId,
+      lineId: draft.lineId,
+      modelId: draft.modelId,
+      processId: draft.processId,
+    };
+    const generation = ++lookupGeneration.current;
+    if (Object.values(naturalKey).some((value) => !value)) {
+      setEditing(null);
+      setLookupState("incomplete");
+      return;
+    }
+    if (!findExisting) {
+      setEditing(null);
+      setLookupState("new");
+      return;
+    }
+    setEditing(null);
+    setLookupState("loading");
+    findExisting(naturalKey).then((record) => {
+      if (generation !== lookupGeneration.current) return;
+      if (!record) {
+        setEditing(null);
+        setLookupState("new");
+        return;
+      }
+      setDraft((current) => ({
+        ...current,
+        inputQty: record.inputQty,
+        actualQty: record.actualQty,
+        okQty: record.okQty,
+        ngQty: record.ngQty,
+        note: record.note,
+        downtime: record.downtime,
+      }));
+      setEditing({ id: record.id, version: record.version });
+      setLookupState("existing");
+    }).catch(() => {
+      if (generation !== lookupGeneration.current) return;
+      setEditing(null);
+      setLookupState("error");
+      setMessage(t("entry.failed"));
+    });
+  }, [
+    draft.productionDate,
+    draft.shiftId,
+    draft.timeSlotId,
+    draft.lineId,
+    draft.modelId,
+    draft.processId,
+    findExisting,
+  ]);
   const submit = async () => {
     if (submitting.current) return;
-    if (!valid) {
+    if (!valid || (lookupState !== "new" && lookupState !== "existing")) {
       setShowErrors(true);
       setMessage(t("entry.required"));
       return;
@@ -146,16 +207,22 @@ export function ProductionEntryForm({
     setSaving(true);
     setMessage("");
     try {
-      await repository.saveProductionRecord(draft, 0);
+      const expectedVersion = editing?.version ?? 0;
+      await repository.saveProductionRecord(editing ? { ...draft, id: editing.id } : draft, expectedVersion);
       setMessage(t("entry.saved"));
-      setDraft(blank);
+      if (editing) {
+        setEditing({ id: editing.id, version: expectedVersion + 1 });
+      } else {
+        setDraft(blank);
+        setLookupState("incomplete");
+      }
     } catch (error: unknown) {
       const code = typeof error === "object" && error !== null && "code" in error
         ? String(error.code)
         : "";
       if (code === "40001") {
         setMessage(t("entry.conflict"));
-        await onConflict(draft);
+        await onConflict(draft, editing?.version ?? 0);
       } else if (code === "42501") {
         setMessage(t("entry.forbidden"));
       } else {
@@ -196,7 +263,15 @@ export function ProductionEntryForm({
     </select>
   </label>;
 
-  return <form className="entry-form" ref={formRef} noValidate onSubmit={(event) => {
+  return <form
+    className="entry-form"
+    ref={formRef}
+    data-testid="production-entry-form"
+    data-record-state={lookupState}
+    data-record-id={editing?.id}
+    data-record-version={editing?.version}
+    noValidate
+    onSubmit={(event) => {
     event.preventDefault();
     void submit();
   }}>
@@ -245,6 +320,6 @@ export function ProductionEntryForm({
       <p>{t("entry.utilization", { value: preview.utilizationResult.status === "ok" ? preview.utilizationResult.value : "—" })}</p>
     </section>}
     {message && <p id="entry-validation-error" role="alert" aria-live="assertive">{message}</p>}
-    <button type="submit" disabled={saving}>{saving ? t("entry.saving") : t("entry.save")}</button>
+    <button type="submit" disabled={saving || lookupState === "loading" || lookupState === "error"}>{saving ? t("entry.saving") : t("entry.save")}</button>
   </form>;
 }

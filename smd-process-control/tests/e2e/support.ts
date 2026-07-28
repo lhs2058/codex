@@ -19,8 +19,27 @@ export async function login(page: Page, role: SeededRole, next = "/") {
   await expect(page).toHaveURL(new RegExp(`${next === "/" ? "/$" : next.replace("/", "\\/")}$`));
 }
 
-async function selectConfigured(page: Page, label: string, environmentName: string) {
+export async function selectConfigured(page: Page, label: string, environmentName: string) {
   await page.getByLabel(label, { exact: true }).selectOption({ label: requiredEnv(environmentName) });
+}
+
+export async function selectProductionNaturalKey(
+  page: Page,
+  productionDate: string,
+  environment = {
+    shift: "E2E_SHIFT_LABEL",
+    timeSlot: "E2E_TIME_SLOT_LABEL",
+    line: "E2E_LINE_LABEL",
+    model: "E2E_MODEL_LABEL",
+    process: "E2E_PROCESS_LABEL",
+  },
+) {
+  await page.getByLabel("생산일", { exact: true }).fill(productionDate);
+  await selectConfigured(page, "조", environment.shift);
+  await selectConfigured(page, "시간대", environment.timeSlot);
+  await selectConfigured(page, "라인", environment.line);
+  await selectConfigured(page, "모델", environment.model);
+  await selectConfigured(page, "공정", environment.process);
 }
 
 export async function fillProductionDraft(
@@ -28,12 +47,8 @@ export async function fillProductionDraft(
   productionDate: string,
   quantities: { input: number; actual: number; ok: number; ng: number },
 ) {
-  await page.getByLabel("생산일", { exact: true }).fill(productionDate);
-  await selectConfigured(page, "조", "E2E_SHIFT_LABEL");
-  await selectConfigured(page, "시간대", "E2E_TIME_SLOT_LABEL");
-  await selectConfigured(page, "라인", "E2E_LINE_LABEL");
-  await selectConfigured(page, "모델", "E2E_MODEL_LABEL");
-  await selectConfigured(page, "공정", "E2E_PROCESS_LABEL");
+  await selectProductionNaturalKey(page, productionDate);
+  await expect(page.getByTestId("production-entry-form")).toHaveAttribute("data-record-state", "new");
   await page.getByLabel("투입", { exact: true }).fill(String(quantities.input));
   await page.getByLabel("실적", { exact: true }).fill(String(quantities.actual));
   await page.getByLabel("양품", { exact: true }).fill(String(quantities.ok));
@@ -42,6 +57,14 @@ export async function fillProductionDraft(
 
 export function totalActual(page: Page): Locator {
   return page.locator("article").filter({ hasText: "금일 총 실적" }).locator("strong");
+}
+
+export async function expectDashboardValue(page: Page, productionDate: string, total: number) {
+  const dashboard = page.getByTestId("dashboard-main");
+  await expect(dashboard).toHaveAttribute("data-dashboard-date", productionDate);
+  await expect(dashboard).toHaveAttribute("data-dashboard-state", "ready");
+  await expect(dashboard).toHaveAttribute("data-dashboard-total-actual", String(total));
+  await expect(totalActual(page)).toContainText(total.toLocaleString("ko-KR"));
 }
 
 export async function assertForbiddenRoute(page: Page, path: string) {

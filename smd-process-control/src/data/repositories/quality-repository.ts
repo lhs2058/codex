@@ -1,7 +1,12 @@
 import { getSupabaseClient } from "../supabase";
+import type { DowntimeDraft, ProductionEntryDraft } from "../../domain/types";
 import { chunkIds, readAllPages, type PaginatedQuery } from "./dashboard-pagination";
 
-export interface ExistingProductionRecord { id: string; productionDate: string; shiftId: string; timeSlotId: string; lineId: string; modelId: string; processId: string; inputQty: number; actualQty: number; okQty: number; ngQty: number; version: number; downtimeMinutes: number; }
+export interface ExistingProductionRecord extends ProductionEntryDraft {
+  id: string;
+  version: number;
+  downtimeMinutes: number;
+}
 export interface DashboardQualityFilters {
   productionDate: string;
   shiftId: string | null;
@@ -33,16 +38,54 @@ type Query = PaginatedQuery<Record<string, unknown>> & {
   in(column: string, values: string[]): Query;
   maybeSingle(): PromiseLike<{ data: Record<string, unknown> | null; error: { message?: string } | null }>;
 };
-export interface QualityClient { from(table: "production_records"): Query; }
-export interface DashboardQualityClient extends QualityClient { from(table: "production_records" | "quality_records" | "defect_records"): Query; }
+export interface QualityClient { from(table: "production_records" | "quality_records" | "downtime_records"): Query; }
+export interface DashboardQualityClient extends QualityClient { from(table: "production_records" | "downtime_records" | "quality_records" | "defect_records"): Query; }
 export function createQualityRepository(client: QualityClient = getSupabaseClient() as unknown as DashboardQualityClient) {
   return {
     async findExisting(input: { productionDate: string; shiftId: string; timeSlotId: string; lineId: string; modelId: string; processId: string }): Promise<ExistingProductionRecord | null> {
-      const result = await client.from("production_records").select("id,production_date,shift_id,time_slot_id,line_id,model_id,process_id,input_qty,actual_qty,ok_qty,ng_qty,version,downtime_minutes").eq("production_date", input.productionDate).eq("shift_id", input.shiftId).eq("time_slot_id", input.timeSlotId).eq("line_id", input.lineId).eq("model_id", input.modelId).eq("process_id", input.processId).is("deleted_at", null).maybeSingle();
+      const result = await client.from("production_records").select("id,production_date,shift_id,time_slot_id,line_id,model_id,process_id,input_qty,actual_qty,note,version").eq("production_date", input.productionDate).eq("shift_id", input.shiftId).eq("time_slot_id", input.timeSlotId).eq("line_id", input.lineId).eq("model_id", input.modelId).eq("process_id", input.processId).is("deleted_at", null).maybeSingle();
       if (result.error) throw new Error(result.error.message ?? "existing_record_lookup_failed");
       if (!result.data) return null;
       const row = result.data;
-      return { id: String(row.id), productionDate: String(row.production_date), shiftId: String(row.shift_id), timeSlotId: String(row.time_slot_id), lineId: String(row.line_id), modelId: String(row.model_id), processId: String(row.process_id), inputQty: Number(row.input_qty), actualQty: Number(row.actual_qty), okQty: Number(row.ok_qty), ngQty: Number(row.ng_qty), version: Number(row.version), downtimeMinutes: Number(row.downtime_minutes ?? 0) };
+      const qualityResult = await client.from("quality_records")
+        .select("input_qty,ok_qty,ng_qty")
+        .eq("production_record_id", String(row.id))
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (qualityResult.error || !qualityResult.data) {
+        throw new Error(qualityResult.error?.message ?? "existing_quality_lookup_failed");
+      }
+      const quality = qualityResult.data;
+      const downtimeRows = await readAllPages(
+        () => client.from("downtime_records")
+          .select("id,reason_id,minutes,note")
+          .eq("production_record_id", String(row.id))
+          .is("deleted_at", null),
+        "existing_downtime_lookup_failed",
+        (downtime) => String(downtime.id),
+      );
+      const downtime: DowntimeDraft[] = downtimeRows.map((item) => ({
+        reasonId: String(item.reason_id),
+        minutes: Number(item.minutes),
+        note: String(item.note ?? ""),
+      }));
+      return {
+        id: String(row.id),
+        productionDate: String(row.production_date),
+        shiftId: String(row.shift_id),
+        timeSlotId: String(row.time_slot_id),
+        lineId: String(row.line_id),
+        modelId: String(row.model_id),
+        processId: String(row.process_id),
+        inputQty: Number(quality.input_qty),
+        actualQty: Number(row.actual_qty),
+        okQty: Number(quality.ok_qty),
+        ngQty: Number(quality.ng_qty),
+        note: String(row.note ?? ""),
+        downtime,
+        version: Number(row.version),
+        downtimeMinutes: downtime.reduce((total, item) => total + Number(item.minutes ?? 0), 0),
+      };
     },
     async listDashboardQuality(filters: DashboardQualityFilters): Promise<DashboardQualityRecord[]> {
       if (filters.productionRecordIds.length === 0) return [];

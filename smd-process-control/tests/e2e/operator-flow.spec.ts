@@ -1,6 +1,6 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
-import { assertForbiddenRoute, fillProductionDraft, login, requiredEnv, totalActual } from "./support";
+import { assertForbiddenRoute, expectDashboardValue, fillProductionDraft, login, requiredEnv, selectConfigured } from "./support";
 
 test("operator logs in, enters production, sees dashboard data, and cannot use admin replacement", async ({ page }) => {
   const productionDate = requiredEnv("E2E_OPERATOR_DATE");
@@ -15,7 +15,8 @@ test("operator logs in, enters production, sees dashboard data, and cannot use a
 
   await page.goto("/");
   await page.getByLabel("생산일", { exact: true }).fill(productionDate);
-  await expect(totalActual(page)).toContainText(actual.toLocaleString("ko-KR"));
+  await selectConfigured(page, "라인", "E2E_LINE_LABEL");
+  await expectDashboardValue(page, productionDate, actual);
 
   await page.goto("/upload");
   await page.getByLabel("엑셀 파일").setInputFiles(path.resolve(requiredEnv("E2E_DUPLICATE_WORKBOOK")));

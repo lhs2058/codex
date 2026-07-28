@@ -106,32 +106,50 @@ Restore into an empty, isolated recovery project: restore the database dump with
 
 ## E2E fixture and verification
 
-Reset local Supabase before E2E and seed three active Auth users/profiles (operator, admin, viewer), active master data with a non-overlapping standard time, report data, and a duplicate standard workbook. E2E uses only the public UI and real Supabase APIs. Set:
+The checked-in seed workflow is deliberately local-only. It refuses remote URLs, requires the standard local API endpoint (`http://127.0.0.1:54321`), requires an explicit confirmation phrase, and permits its generated workbook only under `.e2e`. It uses the local service-role key only in the Node seed process; that key is never exposed to Vite, written to the manifest, or committed.
 
-```dotenv
-E2E_OPERATOR_EMPLOYEE_ID=
-E2E_OPERATOR_PASSWORD=
-E2E_ADMIN_EMPLOYEE_ID=
-E2E_ADMIN_PASSWORD=
-E2E_VIEWER_EMPLOYEE_ID=
-E2E_VIEWER_PASSWORD=
-E2E_SHIFT_LABEL=
-E2E_TIME_SLOT_LABEL=
-E2E_LINE_LABEL=
-E2E_MODEL_LABEL=
-E2E_PROCESS_LABEL=
-E2E_OPERATOR_DATE=
-E2E_OPERATOR_ACTUAL=
-E2E_CONCURRENCY_DATE=
-E2E_DUPLICATE_WORKBOOK=
-E2E_ADMIN_MODEL_CODE=
-E2E_ADMIN_MODEL_NAME=
-E2E_ST_MODEL_ID=
-E2E_ST_SECONDS=
-E2E_ST_EFFECTIVE_FROM=
+After `npx supabase db reset`, set fresh local-only secrets and run:
+
+```powershell
+$env:SUPABASE_URL='http://127.0.0.1:54321'
+$env:SUPABASE_SERVICE_ROLE_KEY='<service-role key printed by local Supabase>'
+$env:E2E_OPERATOR_PASSWORD='<local test password>'
+$env:E2E_ADMIN_PASSWORD='<local test password>'
+$env:E2E_VIEWER_PASSWORD='<local test password>'
+$env:E2E_DUPLICATE_WORKBOOK='.e2e\duplicate-upload.xlsx'
+$env:E2E_SEED_CONFIRM='local-only-smd-e2e'
+npm run seed:e2e
 ```
 
-Use dates allowed by RLS (operators may enter the Bangkok current day). Reset between runs so natural keys and admin model codes are reproducible. Missing E2E configuration is an error, not a skipped critical test.
+The script is idempotent for its fixture scope. It creates or updates employee IDs `910001` (operator), `910002` (admin), and `910003` (viewer); their Auth UUIDs are resolved and recorded without credentials in `.e2e/seed-manifest.json`. It creates fixed-ID `E2E-MODEL`, `LINE-1`, `LINE-2`, `E2E-DAY`, `E2E-08`, `E2E-09`, `E2E-WAIT`, standard-time, target, production, quality, and downtime fixtures. AOI is the migration-owned process and its resolved UUID is written to the manifest.
+
+For the Bangkok current day, the fixed concurrency record
+`e2000000-0000-4000-8000-000000000101` is version 3 with input/actual/OK/NG `100/100/99/1` and 5 downtime minutes. A second report record contributes actual 200, so the `LINE-1` dashboard baseline is exactly 300. The concurrency edit is `110/110/109/1`, advances the first record to version 4, and makes the exact dashboard total 310. The generated workbook duplicates the separate report record (`E2E-09`) so admin replacement cannot invalidate the concurrency version.
+
+Load the public E2E variables from that contract:
+
+```powershell
+$manifest = Get-Content '.e2e\seed-manifest.json' -Raw | ConvertFrom-Json
+$env:E2E_OPERATOR_EMPLOYEE_ID='910001'
+$env:E2E_ADMIN_EMPLOYEE_ID='910002'
+$env:E2E_VIEWER_EMPLOYEE_ID='910003'
+$env:E2E_SHIFT_LABEL='E2E Day Shift'
+$env:E2E_TIME_SLOT_LABEL='E2E-08'
+$env:E2E_LINE_LABEL='E2E Operator Line'
+$env:E2E_CONCURRENCY_TIME_SLOT_LABEL='E2E-08'
+$env:E2E_CONCURRENCY_LINE_LABEL='E2E Line 1'
+$env:E2E_MODEL_LABEL='E2E Model'
+$env:E2E_PROCESS_LABEL='AOI'
+$env:E2E_OPERATOR_DATE=$manifest.productionDate
+$env:E2E_OPERATOR_ACTUAL='47'
+$env:E2E_CONCURRENCY_DATE=$manifest.productionDate
+$env:E2E_ADMIN_MODEL_CODE='E2E-ADMIN-MODEL'
+$env:E2E_ADMIN_MODEL_NAME='E2E Admin Model'
+$env:E2E_ST_SECONDS='11'
+$env:E2E_ST_EFFECTIVE_FROM='2020-01-01'
+```
+
+The three password variables remain in the current shell for Playwright. Do not put them in a tracked file. Missing E2E configuration is an error, not a skipped critical test. Re-run `npm run seed:e2e` before a fresh full browser suite; the seed removes only prior records in its fixed local fixture scope and does not weaken RLS or add a production bypass.
 
 Run the release gate:
 
@@ -139,6 +157,7 @@ Run the release gate:
 $env:SMD_SOURCE_WORKBOOK_DIR='X:\read-only\SMD source workbooks'
 npm test
 npx supabase db reset
+npm run seed:e2e
 npx supabase test db
 npm run build
 npx playwright test --list

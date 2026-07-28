@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { MasterDataSnapshot, ProductionEntryDraft } from "../../domain/types";
 import { createMasterDataRepository, type MasterDataRepository } from "../../data/repositories/master-data-repository";
 import { createProductionRepository, type ProductionRepository } from "../../data/repositories/production-repository";
-import { createQualityRepository } from "../../data/repositories/quality-repository";
+import { createQualityRepository, type ExistingProductionRecord } from "../../data/repositories/quality-repository";
 import { downtimeDurationMinutes } from "../../domain/validation";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { ProductionEntryForm } from "./ProductionEntryForm";
@@ -46,7 +46,7 @@ export function ProductionEntryPage({
   masterRepository?: Pick<MasterDataRepository, "listMasterData">;
   productionRepository?: ProductionRepository;
   qualityRepository?: {
-    findExisting(input: Pick<ProductionEntryDraft, "productionDate" | "shiftId" | "timeSlotId" | "lineId" | "modelId" | "processId">): Promise<unknown>;
+    findExisting(input: Pick<ProductionEntryDraft, "productionDate" | "shiftId" | "timeSlotId" | "lineId" | "modelId" | "processId">): Promise<ExistingProductionRecord | null>;
   };
 }) {
   const { t } = useI18n(legacy);
@@ -69,8 +69,10 @@ export function ProductionEntryPage({
     return () => { mounted = false; };
   }, [masterRepo, retry, t]);
 
-  const conflict = useCallback(async (draft: ProductionEntryDraft) => {
-    setConflictDraft(draft);
+  const findExisting = useCallback((draft: Pick<ProductionEntryDraft, "productionDate" | "shiftId" | "timeSlotId" | "lineId" | "modelId" | "processId">) =>
+    (qualityRepo ?? defaultQuality()).findExisting(draft), [qualityRepo]);
+  const conflict = useCallback(async (draft: ProductionEntryDraft, expectedVersion: number) => {
+    setConflictDraft(Object.assign({}, draft, { version: expectedVersion }));
     setExisting(await (qualityRepo ?? defaultQuality()).findExisting(draft));
   }, [qualityRepo]);
 
@@ -113,7 +115,7 @@ export function ProductionEntryPage({
 
   return <main className="feature-main entry-main">
     <h1>{t("entry.title")}</h1>
-    <ProductionEntryForm masterData={master} repository={productionRepo} onConflict={conflict} />
+    <ProductionEntryForm masterData={master} repository={productionRepo} findExisting={findExisting} onConflict={conflict} />
     {Boolean(existing) && conflictDraft && <aside aria-label={t("entry.comparison")} className="entry-comparison">
       {record(t("entry.draft"), conflictDraft)}
       {record(t("entry.current"), existing)}

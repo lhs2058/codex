@@ -2,6 +2,7 @@ import type { ProductionEntryDraft } from "../../domain/types";
 import { getSupabaseClient } from "../supabase";
 import { chunkIds, readAllPages, type PaginatedQuery } from "./dashboard-pagination";
 
+export type ProductionRecordDraft = ProductionEntryDraft & { id?: string };
 export interface DashboardProductionFilters {
   productionDate: string;
   shiftId: string | null;
@@ -22,7 +23,7 @@ export interface DashboardProductionRecord {
   downtime: Array<{ reasonId: string; minutes: number }>;
 }
 export interface ProductionRepository {
-  saveProductionRecord(draft: ProductionEntryDraft, expectedVersion: number): Promise<string>;
+  saveProductionRecord(draft: ProductionRecordDraft, expectedVersion: number): Promise<string>;
   listDashboardProduction(filters: DashboardProductionFilters): Promise<DashboardProductionRecord[]>;
 }
 export interface ProductionClient { rpc(name: "save_production_record", params: { payload: Record<string, unknown>; expected_version: number }): PromiseLike<{ data: string | null; error: { code?: string; message?: string } | null }>; }
@@ -36,7 +37,23 @@ export interface DashboardProductionClient extends ProductionClient { from(table
 export class ProductionRepositoryError extends Error { code?: string; constructor(error: { code?: string; message?: string }) { super(error.message ?? "production_save_failed"); this.code = error.code; } }
 
 function mapDowntime(row: ProductionEntryDraft["downtime"][number]) { return { reason_id: row.reasonId, ...(row.minutes !== undefined ? { minutes: row.minutes } : { start_time: row.startTime, end_time: row.endTime }), note: row.note }; }
-export function toProductionPayload(draft: ProductionEntryDraft): Record<string, unknown> { return { production_date: draft.productionDate, shift_id: draft.shiftId, time_slot_id: draft.timeSlotId, line_id: draft.lineId, model_id: draft.modelId, process_id: draft.processId, input_qty: draft.inputQty, actual_qty: draft.actualQty, ok_qty: draft.okQty, ng_qty: draft.ngQty, note: draft.note, downtime: draft.downtime.map(mapDowntime) }; }
+export function toProductionPayload(draft: ProductionRecordDraft): Record<string, unknown> {
+  return {
+    ...(draft.id ? { id: draft.id } : {}),
+    production_date: draft.productionDate,
+    shift_id: draft.shiftId,
+    time_slot_id: draft.timeSlotId,
+    line_id: draft.lineId,
+    model_id: draft.modelId,
+    process_id: draft.processId,
+    input_qty: draft.inputQty,
+    actual_qty: draft.actualQty,
+    ok_qty: draft.okQty,
+    ng_qty: draft.ngQty,
+    note: draft.note,
+    downtime: draft.downtime.map(mapDowntime),
+  };
+}
 function applyDashboardFilters(query: DashboardQuery, filters: DashboardProductionFilters): DashboardQuery {
   let filtered = query.eq("production_date", filters.productionDate).is("deleted_at", null);
   if (filters.shiftId) filtered = filtered.eq("shift_id", filters.shiftId);
@@ -93,4 +110,4 @@ export function createProductionRepository(client: ProductionClient = getSupabas
     },
   };
 }
-export const saveProductionRecord = (draft: ProductionEntryDraft, expectedVersion: number) => createProductionRepository().saveProductionRecord(draft, expectedVersion);
+export const saveProductionRecord = (draft: ProductionRecordDraft, expectedVersion: number) => createProductionRepository().saveProductionRecord(draft, expectedVersion);

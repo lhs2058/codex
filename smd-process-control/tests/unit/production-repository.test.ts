@@ -12,4 +12,12 @@ describe("production repository", () => {
   it("normalizes RPC error codes for form conflict handling", async () => {
     await expect(createProductionRepository({ rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "40001", message: "conflict" } }) }).saveProductionRecord(draft, 0)).rejects.toMatchObject({ code: "40001" });
   });
+  it("includes the immutable record ID only for an existing-record edit", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: "record-id", error: null });
+    await createProductionRepository({ rpc }).saveProductionRecord({ ...draft, id: "record-id" }, 7);
+    expect(rpc).toHaveBeenCalledWith("save_production_record", {
+      payload: expect.objectContaining({ id: "record-id" }),
+      expected_version: 7,
+    });
+  });
 });
