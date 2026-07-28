@@ -4,4 +4,5 @@ values
   ('AOI', 'AOI'),
   ('XRAY', 'X-ray'),
   ('ICT', 'ICT'),
-  ('ROUTER', 'Router');
+  ('ROUTER', 'Router')
+on conflict (code) where deleted_at is null do nothing;

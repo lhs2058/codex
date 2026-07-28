@@ -22,6 +22,7 @@ create table public.models (
 
 create table public.processes (
   id uuid primary key default gen_random_uuid(), code text not null, name text not null,
+  constraint processes_code_allowed check (code in ('SPI', 'AOI', 'XRAY', 'ICT', 'ROUTER')),
   is_active boolean not null default true, created_at timestamptz not null default now(),
   created_by uuid references auth.users(id), updated_at timestamptz not null default now(),
   updated_by uuid references auth.users(id), version bigint not null default 1,
@@ -46,6 +47,7 @@ create table public.shifts (
 
 create table public.time_slots (
   id uuid primary key default gen_random_uuid(), shift_id uuid not null references public.shifts(id),
+  constraint time_slots_unique_id_shift unique (id, shift_id),
   code text not null, starts_at time not null, ends_at time not null,
   end_day_offset smallint not null default 0 check (end_day_offset in (0, 1)),
   sequence integer not null check (sequence > 0), is_active boolean not null default true,
@@ -85,13 +87,15 @@ create table public.standard_times (
 
 create table public.production_records (
   id uuid primary key default gen_random_uuid(), production_date date not null,
-  shift_id uuid not null references public.shifts(id), time_slot_id uuid not null references public.time_slots(id),
+  shift_id uuid not null references public.shifts(id), time_slot_id uuid not null,
   line_id uuid not null references public.lines(id), model_id uuid not null references public.models(id),
   process_id uuid not null references public.processes(id), input_qty integer not null default 0 check (input_qty >= 0),
   actual_qty integer not null default 0 check (actual_qty >= 0), note text not null default '',
   created_at timestamptz not null default now(), created_by uuid references auth.users(id),
   updated_at timestamptz not null default now(), updated_by uuid references auth.users(id),
-  version bigint not null default 1, deleted_at timestamptz, deleted_by uuid references auth.users(id)
+  version bigint not null default 1, deleted_at timestamptz, deleted_by uuid references auth.users(id),
+  constraint production_records_time_slot_shift_fk foreign key (time_slot_id, shift_id)
+    references public.time_slots (id, shift_id)
 );
 
 create table public.quality_records (

@@ -10,6 +10,7 @@ select results_eq(
   $$select code from public.processes order by code$$,
   $$values ('AOI'), ('ICT'), ('ROUTER'), ('SPI'), ('XRAY')$$
 );
+select pass('core schema inspected');
 select finish();
 
 rollback;

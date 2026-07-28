@@ -41,23 +41,3 @@ create index defect_records_quality_record_idx on public.defect_records (quality
   where deleted_at is null;
 create index upload_rows_batch_idx on public.upload_rows (batch_id, status) where deleted_at is null;
 create index audit_logs_record_idx on public.audit_logs (table_name, record_id, created_at desc);
-
-alter table public.profiles enable row level security;
-alter table public.models enable row level security;
-alter table public.processes enable row level security;
-alter table public.lines enable row level security;
-alter table public.shifts enable row level security;
-alter table public.time_slots enable row level security;
-alter table public.downtime_reasons enable row level security;
-alter table public.yield_targets enable row level security;
-alter table public.standard_times enable row level security;
-alter table public.production_records enable row level security;
-alter table public.quality_records enable row level security;
-alter table public.defect_records enable row level security;
-alter table public.downtime_records enable row level security;
-alter table public.upload_batches enable row level security;
-alter table public.upload_rows enable row level security;
-alter table public.audit_logs enable row level security;
-
-grant usage on schema public to authenticated;
-grant select, insert, update, delete on all tables in schema public to authenticated;
