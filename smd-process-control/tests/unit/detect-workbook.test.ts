@@ -43,7 +43,7 @@ describe("workbook detection", () => {
       ["Time A", "Time B", "Time C", "Time D", "Time E"], [],
       ["CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú", "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú"],
     ]);
-    expect(detectWorkbook([grouped]).kind).toBe("production");
+    expect(detectWorkbook([grouped]).kind).toBe("unknown");
     expect(detectWorkbook([sheet("25.07", [["random"]])]).kind).toBe("unknown");
   });
 

@@ -27,5 +27,6 @@ export function findProductionGroupedLayout(sheet: WorkbookSheet): ProductionGro
       noteColumn: row.findIndex((cell, column) => column >= start && column < start + 5 && /ghi chu/.test(plain(cell))),
     };
   });
+  if (lineColumn < 0 || modelColumn < 0 || slots.some((slot) => Object.values(slot).some((column) => column < 0))) return null;
   return { titleRow, groupRow, timeRow, subheaderRow, dataStartRow: subheaderRow + 1, lineColumn, modelColumn, slots };
 }

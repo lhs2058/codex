@@ -17,10 +17,6 @@ export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseRes
       diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: 1, code: "missing-required-value", message: "Production grouped signature missing", field: "headers" });
       continue;
     }
-    if (layout.lineColumn < 0 || layout.modelColumn < 0 || layout.slots.some((slot) => Object.values(slot).some((column) => column < 0))) {
-      diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: layout.subheaderRow + 1, code: "missing-required-value", message: "Production grouped headers missing", field: "headers" });
-      continue;
-    }
     for (let i = layout.dataStartRow; i < sheet.data.length; i += 1) {
       const row = sheet.data[i] ?? [];
       const line = row[layout.lineColumn]; const model = row[layout.modelColumn];
