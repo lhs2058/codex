@@ -55,7 +55,9 @@ export interface MasterDataSnapshot {
 
 export interface DowntimeDraft {
   reasonId: string;
-  minutes: number;
+  minutes?: number;
+  startTime?: string;
+  endTime?: string;
   note: string;
 }
 
@@ -78,7 +80,7 @@ export interface ProductionPreview {
   standardTime: StandardTime | null;
   yieldResult: MetricResult;
   utilizationResult: MetricResult;
-  plannedSeconds: number;
+  plannedSeconds: number | null;
   downtimeSeconds: number;
 }
 
