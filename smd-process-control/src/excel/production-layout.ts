@@ -3,7 +3,7 @@ import type { WorkbookSheet } from "./contracts";
 const plain = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 const label = (value: unknown) => plain(value).replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
 
-export type ProductionGroupedLayout = { titleRow: number; groupRow: number; timeRow: number; subheaderRow: number; dataStartRow: number; lineColumn: number; modelColumn: number; slots: Array<{ actualColumn: number; downtimeColumn: number; noteColumn: number }> };
+export type ProductionGroupedLayout = { titleRow: number; groupRow: number; timeRow: number; subheaderRow: number; dataStartRow: number; shiftColumn: number | null; lineColumn: number; modelColumn: number; slots: Array<{ actualColumn: number; downtimeColumn: number; noteColumn: number }> };
 
 export function findProductionGroupedLayout(sheet: WorkbookSheet): ProductionGroupedLayout | null {
   if (!/^\d{2}\.\d{2}$/.test(sheet.sheet)) return null;
@@ -14,6 +14,8 @@ export function findProductionGroupedLayout(sheet: WorkbookSheet): ProductionGro
   const subheaderRow = sheet.data.findIndex((row, index) => index > timeRow && row.filter((cell) => /san luong thuc te|dung may|ghi chu/.test(plain(cell))).length >= 3);
   if (groupRow < 0 || timeRow < 0 || subheaderRow < 0) return null;
   const metadataRow = sheet.data[groupRow] ?? [];
+  const discoveredShiftColumn = metadataRow.findIndex((cell) => ["shift", "ca"].includes(label(cell)));
+  const shiftColumn = discoveredShiftColumn >= 0 ? discoveredShiftColumn : null;
   const explicitLineColumn = metadataRow.findIndex((cell) => label(cell) === "line");
   const firstModelColumn = metadataRow.findIndex((cell) => label(cell) === "model");
   const lineColumn = explicitLineColumn >= 0 ? explicitLineColumn : firstModelColumn;
@@ -28,5 +30,5 @@ export function findProductionGroupedLayout(sheet: WorkbookSheet): ProductionGro
     };
   });
   if (lineColumn < 0 || modelColumn < 0 || slots.some((slot) => Object.values(slot).some((column) => column < 0))) return null;
-  return { titleRow, groupRow, timeRow, subheaderRow, dataStartRow: subheaderRow + 1, lineColumn, modelColumn, slots };
+  return { titleRow, groupRow, timeRow, subheaderRow, dataStartRow: subheaderRow + 1, shiftColumn, lineColumn, modelColumn, slots };
 }

@@ -8,11 +8,24 @@ import { parseProductionWorkbook } from "../../src/excel/adapters/production-ada
 import { parseSpiWorkbook } from "../../src/excel/adapters/spi-adapter";
 import { parseXrayWorkbook } from "../../src/excel/adapters/xray-adapter";
 import type { WorkbookSheet } from "../../src/excel/contracts";
+import { detectWorkbook } from "../../src/excel/detect-workbook";
 
 async function readFixture(name: string): Promise<WorkbookSheet[]> {
   const file = path.join(import.meta.dirname, "..", "fixtures", name);
   const names = await readXlsxFile(await fs.readFile(file), { getSheets: true });
   return Promise.all(names.map(async ({ name: sheet }) => ({ sheet, data: await readXlsxFile(await fs.readFile(file), { sheet }) })));
+}
+
+function productionSheet(rowOffset: number, columnOffset: number): WorkbookSheet {
+  const pad = (row: unknown[]) => [...Array(columnOffset).fill(null), ...row];
+  const rows = [
+    ["BÁO CÁO SẢN LƯỢNG CÁC CÔNG ĐOẠN SMD THEO TIME NGÀY 25/07/2026"],
+    ["Ngày", "Ca", "Line", "Model", null, null, "Sản Lượng Từng Time"],
+    [null, null, null, null, null, null, "Time A", null, null, null, null, "Time B", null, null, null, null, "Time C", null, null, null, null, "Time D", null, null, null, null, "Time E"],
+    [null, null, null, null, null, null, "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú", "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú", "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú", "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú", "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú"],
+    [null, "NIGHT", "Line 2", "MODEL-B", null, null, 10, 8, 0.8, 5, "setup", 10, 7, 0.7, 4, "repair", 10, 6, 0.6, 3, null, 10, 5, 0.5, 2, null, 10, 4, 0.4, 1, "changeover"],
+  ].map(pad);
+  return { sheet: "25.07", data: [...Array(rowOffset).fill([]), ...rows] };
 }
 
 describe("legacy Excel adapters", () => {
@@ -68,6 +81,73 @@ describe("legacy Excel adapters", () => {
     ]));
     expect(result.rows.every((row) => row.inputQty === 0 && row.okQty === 0 && row.ngQty === 0)).toBe(true);
     expect(result.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ sourceRow: 14, code: "missing-required-value", field: "modelCode" })]));
+  });
+
+  it("detects and parses a complete production table shifted down and right without changing normalized semantics", () => {
+    const unshifted = productionSheet(0, 2);
+    const shifted = productionSheet(3, 6);
+
+    expect(detectWorkbook([shifted])).toEqual({ kind: "production", diagnostics: [] });
+    const shiftedResult = parseProductionWorkbook([shifted]);
+    const semanticRows = shiftedResult.rows.map(({ productionDate, shiftCode, lineCode, modelCode, processCode, timeSlotCode, actualQty, downtimeMinutes }) => ({
+      productionDate, shiftCode, lineCode, modelCode, processCode, timeSlotCode, actualQty, downtimeMinutes,
+    }));
+    expect(semanticRows).toEqual([
+      { productionDate: "2026-07-25", shiftCode: "NIGHT", lineCode: "LINE-2", modelCode: "MODEL-B", processCode: "AOI", timeSlotCode: "A", actualQty: 8, downtimeMinutes: 5 },
+      { productionDate: "2026-07-25", shiftCode: "NIGHT", lineCode: "LINE-2", modelCode: "MODEL-B", processCode: "AOI", timeSlotCode: "B", actualQty: 7, downtimeMinutes: 4 },
+      { productionDate: "2026-07-25", shiftCode: "NIGHT", lineCode: "LINE-2", modelCode: "MODEL-B", processCode: "AOI", timeSlotCode: "C", actualQty: 6, downtimeMinutes: 3 },
+      { productionDate: "2026-07-25", shiftCode: "NIGHT", lineCode: "LINE-2", modelCode: "MODEL-B", processCode: "AOI", timeSlotCode: "D", actualQty: 5, downtimeMinutes: 2 },
+      { productionDate: "2026-07-25", shiftCode: "NIGHT", lineCode: "LINE-2", modelCode: "MODEL-B", processCode: "AOI", timeSlotCode: "E", actualQty: 4, downtimeMinutes: 1 },
+    ]);
+    expect(semanticRows).toEqual(parseProductionWorkbook([unshifted]).rows.map(({ productionDate, shiftCode, lineCode, modelCode, processCode, timeSlotCode, actualQty, downtimeMinutes }) => ({
+      productionDate, shiftCode, lineCode, modelCode, processCode, timeSlotCode, actualQty, downtimeMinutes,
+    })));
+    expect(shiftedResult.diagnostics).toEqual([]);
+  });
+
+  it("keeps production detector and parser rejection in parity for an incomplete shifted table", () => {
+    const malformed = productionSheet(2, 5);
+    malformed.data[5]![35] = null;
+
+    expect(detectWorkbook([malformed]).kind).toBe("unknown");
+    expect(parseProductionWorkbook([malformed])).toEqual({
+      kind: "production",
+      rows: [],
+      diagnostics: [expect.objectContaining({ sourceSheet: "25.07", code: "missing-required-value", field: "headers" })],
+    });
+  });
+
+  it.each([
+    ["AOI", "aoi model", parseAoiWorkbook],
+    ["SPI", "SPI MODEL", parseSpiWorkbook],
+  ] as const)("preserves %s model-sheet date state across malformed rows and resets it at totals", (process, sourceSheet, parse) => {
+    const title = process === "AOI" ? "Data Theo Dõi Hiệu Suất Máy AOI" : "Hiệu Suất Máy SPI";
+    const result = parse([{ sheet: sourceSheet, data: [
+      [null, title],
+      [],
+      [],
+      [],
+      [null, null, "27.07.2026", "DAY", null, null, "MODEL-A", 10, 9],
+      [null, null, null, null, null, null, "MODEL-B", 8, 7],
+      [null, null, null, "TOTAL", null, null, null, 18, 16],
+      [null, null, null, null, null, null, "MODEL-A", 6, 5],
+      [null, null, "28.07.2026", "NIGHT", null, null, "MODEL-A", "bad", 4],
+      [null, null, null, null, null, null, "MODEL-B", 5, 4],
+      [null, null, null, "SECTION", null, null, null, 5, 4],
+      [null, null, null, null, null, null, "MODEL-A", 4, 3],
+    ] }]);
+
+    expect(result.rows).toEqual([
+      { sourceSheet, sourceRow: 5, productionDate: "2026-07-27", shiftCode: "DAY", timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-A", processCode: process, inputQty: 10, actualQty: 9, okQty: 9, ngQty: 1, downtimeMinutes: 0, downtimeReasonCode: null, note: "" },
+      { sourceSheet, sourceRow: 6, productionDate: "2026-07-27", shiftCode: "DAY", timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-B", processCode: process, inputQty: 8, actualQty: 7, okQty: 7, ngQty: 1, downtimeMinutes: 0, downtimeReasonCode: null, note: "" },
+      { sourceSheet, sourceRow: 10, productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-B", processCode: process, inputQty: 5, actualQty: 4, okQty: 4, ngQty: 1, downtimeMinutes: 0, downtimeReasonCode: null, note: "" },
+    ]);
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({ sourceSheet, sourceRow: 8, code: "missing-required-value", field: "productionDate" }),
+      expect.objectContaining({ sourceSheet, sourceRow: 9, code: "invalid-count", field: "counts" }),
+      expect.objectContaining({ sourceSheet, sourceRow: 12, code: "missing-required-value", field: "productionDate" }),
+    ]);
+    expect(result.diagnostics.some(({ sourceRow }) => sourceRow === 7 || sourceRow === 11)).toBe(false);
   });
 
   it("returns row-specific diagnostics instead of throwing for malformed in-memory quality data", () => {

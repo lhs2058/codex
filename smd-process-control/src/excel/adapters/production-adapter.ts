@@ -33,7 +33,7 @@ export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseRes
         try { actualQty = normalizeQuantity(actual, "actualQty"); } catch (error) { diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "invalid-count", message: String(error), field: "actualQty" }); continue; }
         try { downtimeMinutes = downtime == null ? 0 : normalizeQuantity(downtime, "downtimeMinutes"); } catch (error) { diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "invalid-count", message: String(error), field: "downtimeMinutes" }); continue; }
         const lineCode = process === "ICT" ? "ICT-1" : /router may 2/i.test(folded(lineText)) ? "ROUTER-2" : normalizeLineName(line);
-        rows.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, productionDate: `${date[3]}-${date[2]}-${date[1]}`, shiftCode: text(row[3]) || "DAY", timeSlotCode: slots[j], lineCode, modelCode: text(model), processCode: process, inputQty: 0, actualQty, okQty: 0, ngQty: 0, downtimeMinutes, downtimeReasonCode: null, note: typeof note === "string" ? note : "" });
+        rows.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, productionDate: `${date[3]}-${date[2]}-${date[1]}`, shiftCode: layout.shiftColumn == null ? "DAY" : text(row[layout.shiftColumn]) || "DAY", timeSlotCode: slots[j], lineCode, modelCode: text(model), processCode: process, inputQty: 0, actualQty, okQty: 0, ngQty: 0, downtimeMinutes, downtimeReasonCode: null, note: typeof note === "string" ? note : "" });
       }
     }
   }
