@@ -7,6 +7,7 @@ import {
   PRODUCTION_HEADERS,
   buildStandardTemplate,
 } from "../../src/excel/template";
+import type { WorkbookSheet } from "../../src/excel/contracts";
 
 const masterData: MasterDataSnapshot = {
   models: [
@@ -35,6 +36,10 @@ const masterData: MasterDataSnapshot = {
   ],
   standardTimes: [],
 };
+const referenceSheet = (version: unknown = 1): WorkbookSheet => ({
+  sheet: "Reference",
+  data: [["Template Version", version]],
+});
 
 describe("standard workbook template", () => {
   it("builds the versioned three-sheet contract with exact headers and active reference data", () => {
@@ -72,15 +77,18 @@ describe("standard workbook template", () => {
   });
 
   it("parses typed standard rows and emits row diagnostics for invalid counts", () => {
-    const result = parseStandardWorkbook([{
-      sheet: "Production",
-      data: [
-        ["SMD_STANDARD_V1"],
-        PRODUCTION_HEADERS,
-        [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 10, 9, 8, 1, 5, "WAIT", "ok"],
-        [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 10, 9, 8, -1, 0, null, "bad"],
-      ],
-    }]);
+    const result = parseStandardWorkbook([
+      {
+        sheet: "Production",
+        data: [
+          ["SMD_STANDARD_V1"],
+          PRODUCTION_HEADERS,
+          [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 10, 9, 8, 1, 5, "WAIT", "ok"],
+          [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 10, 9, 8, -1, 0, null, "bad"],
+        ],
+      },
+      referenceSheet(),
+    ]);
 
     expect(result.rows).toEqual([expect.objectContaining({
       productionDate: "2026-07-28",
@@ -100,15 +108,80 @@ describe("standard workbook template", () => {
   });
 
   it("rejects template versions other than 1 before parsing data", () => {
-    const result = parseStandardWorkbook([{
-      sheet: "Production",
-      data: [["SMD_STANDARD_V2"], PRODUCTION_HEADERS, [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 1, 1, 1, 0, 0, null, ""]],
-    }]);
+    const result = parseStandardWorkbook([
+      {
+        sheet: "Production",
+        data: [["SMD_STANDARD_V2"], PRODUCTION_HEADERS, [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 1, 1, 1, 0, 0, null, ""]],
+      },
+      referenceSheet(),
+    ]);
 
     expect(result.rows).toEqual([]);
     expect(result.diagnostics).toContainEqual(expect.objectContaining({
       code: "unsupported-template-version",
       field: "template_version",
     }));
+  });
+
+  it.each([
+    ["numeric version 2", referenceSheet(2)],
+    ["string version", referenceSheet("1")],
+    ["missing numeric value", { sheet: "Reference", data: [["Template Version"]] }],
+    ["missing Reference sheet", null],
+  ] as const)("rejects %s even when the marker remains SMD_STANDARD_V1", (_caseName, reference) => {
+    const sheets: WorkbookSheet[] = [{
+      sheet: "Production",
+      data: [
+        ["SMD_STANDARD_V1"],
+        PRODUCTION_HEADERS,
+        [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 1, 1, 1, 0, 0, null, ""],
+      ],
+    }];
+    if (reference) sheets.push(reference);
+
+    const result = parseStandardWorkbook(sheets);
+
+    expect(result.rows).toEqual([]);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: "unsupported-template-version",
+      field: "template_version",
+    }));
+  });
+
+  it("rejects a populated 14th header and data column", () => {
+    const result = parseStandardWorkbook([
+      {
+        sheet: "Production",
+        data: [
+          ["SMD_STANDARD_V1"],
+          [...PRODUCTION_HEADERS, "Unexpected Column"],
+          [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 1, 1, 1, 0, 0, null, "", "unexpected"],
+        ],
+      },
+      referenceSheet(),
+    ]);
+
+    expect(result.rows).toEqual([]);
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      code: "missing-required-value",
+      field: "headers",
+    }));
+  });
+
+  it("accepts truly empty trailing header and row cells", () => {
+    const result = parseStandardWorkbook([
+      {
+        sheet: "Production",
+        data: [
+          ["SMD_STANDARD_V1"],
+          [...PRODUCTION_HEADERS, null, ""],
+          [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 1, 1, 1, 0, 0, null, "", null, ""],
+        ],
+      },
+      referenceSheet(),
+    ]);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.rows).toHaveLength(1);
   });
 });

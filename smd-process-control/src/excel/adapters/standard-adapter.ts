@@ -19,11 +19,18 @@ export function parseStandardWorkbook(sheets: WorkbookSheet[]): ImportParseResul
 
   const versionCells = sheets.flatMap((sheet) => sheet.data.slice(0, 30).flatMap((row) => row.slice(0, 40)));
   const version = versionCells.find((cell) => typeof cell === "string" && /^SMD_STANDARD_V\d+$/i.test(cell.trim()));
-  if (version !== "SMD_STANDARD_V1") {
+  const reference = sheets.find((sheet) => sheet.sheet === "Reference");
+  const numericVersion = reference?.data[0]?.[0] === "Template Version" ? reference.data[0][1] : undefined;
+  if (version !== "SMD_STANDARD_V1" || numericVersion !== 1) {
     return {
       kind: "standard",
       rows: [],
-      diagnostics: [diagnostic(1, "unsupported-template-version", `Unsupported template version: ${String(version ?? "(missing)")}`, "template_version")],
+      diagnostics: [diagnostic(
+        1,
+        "unsupported-template-version",
+        `Unsupported template version: marker=${String(version ?? "(missing)")}, numeric=${String(numericVersion ?? "(missing)")}`,
+        "template_version",
+      )],
     };
   }
 
@@ -33,6 +40,9 @@ export function parseStandardWorkbook(sheets: WorkbookSheet[]): ImportParseResul
   });
   if (headerIndex < 0) {
     return { kind: "standard", rows: [], diagnostics: [diagnostic(1, "missing-required-value", "Production headers do not match SMD_STANDARD_V1", "headers")] };
+  }
+  if (hasData(production.data[headerIndex].slice(PRODUCTION_HEADERS.length))) {
+    return { kind: "standard", rows: [], diagnostics: [diagnostic(headerIndex + 1, "missing-required-value", "Production contains unexpected header columns", "headers")] };
   }
 
   const rows: ImportParseResult["rows"] = [];
