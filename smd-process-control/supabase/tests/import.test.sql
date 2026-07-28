@@ -1,6 +1,6 @@
 begin;
 
-select plan(8);
+select plan(16);
 
 select has_function('public', 'current_app_role', array[]::text[], 'current_app_role exists');
 select function_returns('public', 'current_app_role', array[]::text[], 'text', 'current_app_role returns text');
@@ -17,6 +17,38 @@ select is(
   has_function_privilege('anon', 'public.commit_upload_batch(uuid, boolean)', 'EXECUTE'),
   false,
   'anon cannot execute upload commit RPC'
+);
+select has_trigger('public', 'production_records', 'production_records_audit', 'production mutations are audited');
+select has_trigger('public', 'upload_batches', 'upload_batches_guard', 'batch status transitions are guarded');
+select has_trigger('public', 'upload_rows', 'upload_rows_guard', 'staged payload transitions are guarded');
+select is(
+  has_table_privilege('authenticated', 'public.production_records', 'DELETE'),
+  false,
+  'authenticated cannot physically delete production records'
+);
+select is(
+  has_table_privilege('authenticated', 'public.audit_logs', 'DELETE'),
+  false,
+  'authenticated cannot delete audit logs'
+);
+select is(
+  has_column_privilege('authenticated', 'public.upload_batches', 'status', 'UPDATE'),
+  false,
+  'clients cannot mark a batch committed directly'
+);
+
+-- Concurrent sessions are unavailable in the local pgTAP runner. The migration
+-- contract is asserted statically: every upload natural key takes a transaction
+-- scoped advisory lock before the existence check.
+select like(
+  pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),
+  '%pg_advisory_xact_lock%',
+  'upload commits serialize absent natural keys'
+);
+select like(
+  pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),
+  '%model_code%',
+  'upload RPC resolves normalized model codes rather than client-supplied IDs'
 );
 
 select finish();

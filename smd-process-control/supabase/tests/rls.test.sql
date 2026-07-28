@@ -1,6 +1,6 @@
 begin;
 
-select plan(8);
+select plan(12);
 
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at)
 values
@@ -17,7 +17,9 @@ values
 insert into public.models (id, code, name)
 values ('00000000-0000-0000-0000-000000000201', 'TEST-MODEL', 'Test model');
 insert into public.lines (id, code, name)
-values ('00000000-0000-0000-0000-000000000202', 'TEST-LINE', 'Test line');
+values
+  ('00000000-0000-0000-0000-000000000202', 'TEST-LINE', 'Test line'),
+  ('00000000-0000-0000-0000-000000000205', 'TEST-LINE-2', 'Second test line');
 insert into public.shifts (id, code, name)
 values ('00000000-0000-0000-0000-000000000203', 'TEST-SHIFT', 'Test shift');
 insert into public.time_slots (id, shift_id, code, starts_at, ends_at, sequence)
@@ -45,6 +47,29 @@ select lives_ok(
       '00000000-0000-0000-0000-000000000204', '00000000-0000-0000-0000-000000000202',
       '00000000-0000-0000-0000-000000000201', (select id from public.processes where code = 'SPI'), auth.uid(), auth.uid())$$,
   'operator can create own production record'
+);
+select throws_ok(
+  $$select public.save_production_record(jsonb_build_object(
+      'production_date', (now() at time zone 'Asia/Bangkok')::date,
+      'shift_id', '00000000-0000-0000-0000-000000000203',
+      'time_slot_id', '00000000-0000-0000-0000-000000000204',
+      'line_id', '00000000-0000-0000-0000-000000000202',
+      'model_id', '00000000-0000-0000-0000-000000000201',
+      'process_id', (select id from public.processes where code = 'SPI'),
+      'input_qty', 1, 'actual_qty', 1), null)$$,
+  '40001', 'record_version_conflict', 'NULL expected version is rejected for create'
+);
+select throws_ok(
+  $$update public.production_records set line_id = '00000000-0000-0000-0000-000000000205' where created_by = auth.uid()$$,
+  '22023', 'production_record_dimensions_immutable', 'direct production dimension edits are rejected'
+);
+select is_empty(
+  $$select * from public.production_records where deleted_at is not null$$,
+  'active-only reader does not receive soft-deleted production data'
+);
+select throws_ok(
+  $$delete from public.production_records where created_by = auth.uid()$$,
+  '42501', 'operators cannot physically delete production records'
 );
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000103', true);
