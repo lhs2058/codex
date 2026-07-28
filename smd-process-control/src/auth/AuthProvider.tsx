@@ -6,7 +6,7 @@ import type { AuthState } from "./RequireRole";
 
 type Profile = { role: AppRole; is_active: boolean; language?: Language | null };
 type ProfileResult = { data: Profile | null; error: unknown | null };
-type UpdateResult = { error: unknown | null };
+type RpcResult = { data?: unknown; error: unknown | null };
 
 export interface SessionAuthClient {
   auth: {
@@ -16,8 +16,8 @@ export interface SessionAuthClient {
   };
   from(table: "profiles"): {
     select(columns: string): { eq(column: string, value: string): { single(): PromiseLike<ProfileResult> } };
-    update?(values: { language: Language }): { eq(column: string, value: string): PromiseLike<UpdateResult> };
   };
+  rpc?(name: "set_my_language", args: { new_language: Language }): PromiseLike<RpcResult>;
 }
 
 const AuthContext = createContext<AuthState>({ status: "loading", session: null, profile: null });
@@ -89,14 +89,15 @@ export function AuthProvider({ client, children }: PropsWithChildren<{ client: S
     setState((current) => current.profile
       ? { ...current, profile: { ...current.profile, language } }
       : current);
-    const profiles = client.from("profiles");
-    if (!profiles.update) return;
-    const result = await profiles.update({ language }).eq("id", currentSession.user.id);
-    if (result.error) {
+    try {
+      if (!client.rpc) throw new Error("language_rpc_unavailable");
+      const result = await client.rpc("set_my_language", { new_language: language });
+      if (result.error) throw result.error;
+    } catch (error) {
       setState((current) => current.profile
         ? { ...current, profile: { ...current.profile, language: currentProfile.language } }
         : current);
-      throw result.error;
+      throw error;
     }
   }, [client, state.profile, state.session]);
 

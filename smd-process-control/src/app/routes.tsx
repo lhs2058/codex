@@ -24,7 +24,7 @@ const navItems: Array<{
 ];
 
 function ApplicationShell({ auth, children }: PropsWithChildren<{ auth: AuthState }>) {
-  const { language, setLanguage, t } = useI18n();
+  const { error, language, setLanguage, t } = useI18n();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(true);
   const role = auth.profile?.role ?? "viewer";
@@ -63,6 +63,7 @@ function ApplicationShell({ auth, children }: PropsWithChildren<{ auth: AuthStat
           <option value="vi">{t("app.language.vi")}</option>
         </select>
       </label>
+      {error && <p role="alert" aria-live="assertive">{t("app.languageSaveError")}</p>}
       <p className="dashboard-sidebar-note">LIVE SYNC<br /><span>{t("app.live")}</span></p>
     </aside>
     <div className="app-content">{children}</div>
@@ -148,7 +149,7 @@ export function AppRoutes({ auth, responsiveTest = false }: { auth: AuthState; r
         qualityRepository={{ findExisting: async () => null }}
       />
     : <ProductionEntryPage />;
-  return <Routes>
+  return <div data-responsive-fixture={responsiveTest ? "true" : undefined}><Routes>
     <Route path="/login" element={<LoginPage />} />
     <Route path="/" element={<Protected auth={auth} allow={["operator", "admin", "viewer"]}>{dashboard}</Protected>} />
     <Route path="/analysis" element={<Protected auth={auth} allow={["operator", "admin", "viewer"]}><AnalysisPage embedded /></Protected>} />
@@ -156,5 +157,5 @@ export function AppRoutes({ auth, responsiveTest = false }: { auth: AuthState; r
     <Route path="/upload" element={<Protected auth={auth} allow={["operator", "admin"]}><UploadPage /></Protected>} />
     <Route path="/admin" element={<Protected auth={auth} allow={["admin"]}><AdminPage /></Protected>} />
     <Route path="*" element={<Protected auth={auth} allow={["operator", "admin", "viewer"]}><Navigate to="/" replace /></Protected>} />
-  </Routes>;
+  </Routes></div>;
 }

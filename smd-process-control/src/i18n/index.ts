@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   createElement,
   type PropsWithChildren,
@@ -36,6 +37,7 @@ export function t(key: TranslationKey, params?: TranslationParams): string {
 }
 
 interface I18nValue {
+  error: boolean;
   language: Language;
   setLanguage(language: Language): void;
   t(key: TranslationKey, params?: TranslationParams): string;
@@ -58,21 +60,33 @@ export function I18nProvider({
   const [language, setLanguageState] = useState<Language>(
     profileLanguage ?? resolveBrowserLanguage(browserLanguages),
   );
+  const [error, setError] = useState(false);
+  const changeGeneration = useRef(0);
 
   useEffect(() => {
-    if (profileLanguage) setLanguageState(profileLanguage);
+    if (profileLanguage) {
+      setLanguageState(profileLanguage);
+    }
   }, [profileLanguage]);
 
   const setLanguage = useCallback((next: Language) => {
+    const previous = language;
+    const generation = ++changeGeneration.current;
+    setError(false);
     setLanguageState(next);
-    void Promise.resolve(onLanguageChange?.(next)).catch(() => undefined);
-  }, [onLanguageChange]);
+    void Promise.resolve().then(() => onLanguageChange?.(next)).catch(() => {
+      if (generation !== changeGeneration.current) return;
+      setLanguageState(previous);
+      setError(true);
+    });
+  }, [language, onLanguageChange]);
 
   const value = useMemo<I18nValue>(() => ({
+    error,
     language,
     setLanguage,
     t: (key, params) => translate(language, key, params),
-  }), [language, setLanguage]);
+  }), [error, language, setLanguage]);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -84,6 +98,7 @@ export function I18nProvider({
 export function useI18n(legacy?: Partial<Record<TranslationKey, string>>): I18nValue {
   const value = useContext(I18nContext);
   return value ?? {
+    error: false,
     language: "ko",
     setLanguage: () => undefined,
     t: (key, params) => interpolate(legacy?.[key] ?? ko[key], params),

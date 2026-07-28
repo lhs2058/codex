@@ -90,6 +90,40 @@ export function ProductionEntryForm({
       ? (preview?.plannedSeconds === null ? ["timeSlotId"] : [])
       : parsed.error.issues.map((issue) => String(issue.path[0] ?? "productionDate")),
   );
+  const invalidDowntimeRows: Record<number, { reason?: boolean; minutes?: boolean; start?: boolean; end?: boolean }> = {};
+  if (!parsed.success) {
+    for (const issue of parsed.error.issues) {
+      if (issue.path[0] !== "downtime" || typeof issue.path[1] !== "number") continue;
+      const index = issue.path[1];
+      const row = draft.downtime[index];
+      const invalidRow = invalidDowntimeRows[index] ?? {};
+      if (issue.path[2] === "reasonId" || !row?.reasonId) {
+        invalidRow.reason = true;
+      } else if (issue.path[2] === "minutes") {
+        invalidRow.minutes = true;
+      } else if (issue.path[2] === "startTime") {
+        invalidRow.start = true;
+      } else if (issue.path[2] === "endTime") {
+        invalidRow.end = true;
+      } else if (row.minutes !== undefined) {
+        invalidRow.minutes = true;
+      } else {
+        invalidRow.start = true;
+        invalidRow.end = true;
+      }
+      invalidDowntimeRows[index] = invalidRow;
+    }
+  }
+  const downtimeExceedsSlot = parsed.success
+    && preview?.plannedSeconds !== null
+    && !downtimeValid;
+  if (downtimeExceedsSlot && draft.downtime.length > 0) {
+    const index = draft.downtime.findIndex((row) => row.minutes !== undefined);
+    const targetIndex = index >= 0 ? index : 0;
+    invalidDowntimeRows[targetIndex] = draft.downtime[targetIndex].minutes !== undefined
+      ? { ...invalidDowntimeRows[targetIndex], minutes: true }
+      : { ...invalidDowntimeRows[targetIndex], start: true, end: true };
+  }
   const set = <K extends keyof ProductionEntryDraft>(key: K, value: ProductionEntryDraft[K]) => {
     setDraft((old) => ({ ...old, [key]: value }));
     setShowErrors(false);
@@ -196,7 +230,13 @@ export function ProductionEntryForm({
     <label htmlFor="entry-note">{t("entry.note")}
       <textarea id="entry-note" aria-invalid={invalid("note")} value={draft.note} onChange={(event) => set("note", event.target.value)} />
     </label>
-    <DowntimeEditor rows={draft.downtime} reasons={masterData.downtimeReasons.filter((item) => item.active)} onChange={(rows) => set("downtime", rows)} />
+    <DowntimeEditor
+      rows={draft.downtime}
+      reasons={masterData.downtimeReasons.filter((item) => item.active)}
+      invalidRows={showErrors ? invalidDowntimeRows : {}}
+      validationMessageId="entry-validation-error"
+      onChange={(rows) => set("downtime", rows)}
+    />
     {preview && <section className="entry-preview" aria-live="polite">
       <p>{preview.standardTime
         ? t("entry.standardTime", { seconds: preview.standardTime.secondsPerUnit })
@@ -204,7 +244,7 @@ export function ProductionEntryForm({
       <p>{t("entry.yield", { value: preview.yieldResult.status === "ok" ? preview.yieldResult.value : "—" })}</p>
       <p>{t("entry.utilization", { value: preview.utilizationResult.status === "ok" ? preview.utilizationResult.value : "—" })}</p>
     </section>}
-    {message && <p role="alert" aria-live="assertive">{message}</p>}
+    {message && <p id="entry-validation-error" role="alert" aria-live="assertive">{message}</p>}
     <button type="submit" disabled={saving}>{saving ? t("entry.saving") : t("entry.save")}</button>
   </form>;
 }

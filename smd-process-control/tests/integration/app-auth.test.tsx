@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { App } from "../../src/app/App";
@@ -34,7 +34,14 @@ function StateProbe() {
   return <output data-testid="auth-state">{`${state.status}:${state.session?.user.id ?? "none"}:${state.profile?.role ?? "none"}`}</output>;
 }
 
-function clientFor(profile: { role: "admin" | "operator" | "viewer"; is_active: boolean } | null): SessionAuthClient {
+function LanguageStateProbe() {
+  const state = useAuthState();
+  return <button type="button" onClick={() => void state.setLanguage?.("vi")}>
+    {state.profile?.language ?? "none"}
+  </button>;
+}
+
+function clientFor(profile: { role: "admin" | "operator" | "viewer"; is_active: boolean; language?: "ko" | "vi" } | null): SessionAuthClient {
   return {
     auth: {
       getSession: vi.fn().mockResolvedValue({ data: { session }, error: null }),
@@ -46,6 +53,35 @@ function clientFor(profile: { role: "admin" | "operator" | "viewer"; is_active: 
 }
 
 describe("application authentication", () => {
+  it("persists the signed-in user's language through the hardened self-service RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
+    const client = {
+      ...clientFor({ role: "viewer", is_active: true, language: "ko" }),
+      rpc,
+    } as SessionAuthClient;
+    render(<AuthProvider client={client}><LanguageStateProbe /></AuthProvider>);
+
+    fireEvent.click(await screen.findByRole("button", { name: "ko" }));
+
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith("set_my_language", { new_language: "vi" }));
+    expect(screen.getByRole("button", { name: "vi" })).toBeInTheDocument();
+    expect(client.from).toHaveBeenCalledTimes(1);
+  });
+
+  it("rolls back the shell picker and announces a translated error when the RPC fails", async () => {
+    const client = {
+      ...clientFor({ role: "viewer", is_active: true, language: "ko" }),
+      rpc: vi.fn().mockResolvedValue({ data: null, error: { message: "network" } }),
+    } as SessionAuthClient;
+    render(<MemoryRouter><AuthProvider client={client}><App /></AuthProvider></MemoryRouter>);
+    const picker = await screen.findByLabelText("언어");
+
+    fireEvent.change(picker, { target: { value: "vi" } });
+
+    await waitFor(() => expect(picker).toHaveValue("ko"));
+    expect(screen.getByText(/언어 설정을 저장하지 못했습니다/)).toHaveAttribute("role", "alert");
+  });
+
   it("restores an active admin profile before rendering the protected admin route", async () => {
     render(<MemoryRouter initialEntries={["/admin"]}><AuthProvider client={clientFor({ role: "admin", is_active: true })}><App /></AuthProvider></MemoryRouter>);
     expect(screen.getByText("Loading session…")).toBeInTheDocument();

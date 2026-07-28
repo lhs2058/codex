@@ -1,6 +1,6 @@
 begin;
 
-select plan(33);
+select plan(44);
 
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at)
 values
@@ -55,6 +55,11 @@ select throws_ok(
   '42501',
   'anonymous callers cannot execute the historical master RPC'
 );
+select throws_ok(
+  $$select public.set_my_language('vi')$$,
+  '42501',
+  'anonymous callers cannot execute the self-service language RPC'
+);
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000199', true);
@@ -63,9 +68,31 @@ select throws_ok(
   '42501',
   'authenticated callers without an active application profile are denied'
 );
+select throws_ok(
+  $$select public.set_my_language('vi')$$,
+  '42501',
+  'authenticated callers without an active application profile are denied language changes'
+);
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000101', true);
 select is(public.current_app_role(), 'viewer', 'viewer role is read-only');
+select lives_ok(
+  $$select public.set_my_language('vi')$$,
+  'viewer can call the self-service language RPC'
+);
+select is(
+  (select language from public.profiles where id = auth.uid()),
+  'vi',
+  'viewer updates their own language through the self-service RPC'
+);
+reset role;
+select is(
+  (select language from public.profiles where id = '00000000-0000-0000-0000-000000000102'),
+  'ko',
+  'viewer language RPC cannot update another profile'
+);
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000101', true);
 select ok(
   (snapshot -> 'models') @> '[{"code":"HIST-MODEL","is_active":false}]'::jsonb
   and (snapshot -> 'processes') @> '[{"code":"ICT","is_active":false}]'::jsonb
@@ -94,6 +121,21 @@ select throws_ok(
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000102', true);
 select is(public.current_app_role(), 'operator', 'operator role is resolved from profiles');
+select lives_ok(
+  $$select public.set_my_language('vi')$$,
+  'operator can call the self-service language RPC'
+);
+select is(
+  (select language from public.profiles where id = auth.uid()),
+  'vi',
+  'operator updates their own language through the self-service RPC'
+);
+select throws_ok(
+  $$select public.set_my_language('en')$$,
+  '22023',
+  'invalid_language',
+  'self-service language RPC rejects values outside the allowlist'
+);
 select ok(
   (snapshot -> 'models') @> '[{"code":"HIST-MODEL","is_active":false}]'::jsonb
   and (snapshot -> 'processes') @> '[{"code":"ICT","is_active":false}]'::jsonb
@@ -180,6 +222,21 @@ select throws_ok(
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000103', true);
 select is(public.current_app_role(), 'admin', 'admin role is resolved from profiles');
+select lives_ok(
+  $$select public.set_my_language('vi')$$,
+  'admin can call the self-service language RPC'
+);
+select is(
+  (select language from public.profiles where id = auth.uid()),
+  'vi',
+  'admin updates their own language through the self-service RPC'
+);
+select lives_ok(
+  $$update public.profiles
+    set display_name = 'Viewer managed by admin'
+    where id = '00000000-0000-0000-0000-000000000101'$$,
+  'existing admin profile writes remain available'
+);
 select ok(
   (snapshot -> 'models') @> '[{"code":"HIST-MODEL","is_active":false}]'::jsonb
   and (snapshot -> 'processes') @> '[{"code":"ICT","is_active":false}]'::jsonb
@@ -257,8 +314,10 @@ select is_empty(
 reset role;
 select ok(
   not has_function_privilege('anon', 'public.list_historical_master_data()', 'execute')
-  and has_function_privilege('authenticated', 'public.list_historical_master_data()', 'execute'),
-  'historical master RPC execute privilege is restricted to authenticated'
+  and has_function_privilege('authenticated', 'public.list_historical_master_data()', 'execute')
+  and not has_function_privilege('anon', 'public.set_my_language(text)', 'execute')
+  and has_function_privilege('authenticated', 'public.set_my_language(text)', 'execute'),
+  'hardened RPC execute privileges are restricted to authenticated'
 );
 select finish();
 rollback;

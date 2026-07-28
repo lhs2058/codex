@@ -5,15 +5,17 @@ const externalServer = process.env.PLAYWRIGHT_EXTERNAL_SERVER === "true";
 export default defineConfig({
   testDir: "./tests/e2e",
   reporter: "line",
+  timeout: 15_000,
+  expect: { timeout: 5_000 },
   webServer: externalServer ? undefined : {
-    command: "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4173",
+    command: "node ./node_modules/vite/bin/vite.js --host 127.0.0.1 --port 4173 --strictPort",
     env: { VITE_RESPONSIVE_TEST: "true" },
     url: "http://127.0.0.1:4173",
-    reuseExistingServer: true,
+    reuseExistingServer: false,
+    timeout: 30_000,
   },
   use: {
     baseURL: "http://127.0.0.1:4173",
-    channel: "chrome",
     screenshot: "only-on-failure",
   },
 });

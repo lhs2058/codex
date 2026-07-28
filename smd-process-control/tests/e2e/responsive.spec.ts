@@ -16,6 +16,7 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto("/?responsive-test=dashboard&language=vi");
 
+    await expect(page.locator("[data-responsive-fixture='true']")).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Điều hướng chính" })).toBeVisible();
     await expect(page.getByLabel("Chỉ số chính")).toBeVisible();
     await expect(page.getByRole("table", { name: "Tỷ lệ đạt theo công đoạn và chuyền" })).toBeVisible();

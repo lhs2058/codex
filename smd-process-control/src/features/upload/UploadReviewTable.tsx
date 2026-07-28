@@ -6,6 +6,9 @@ const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.reviewRegion": "Upload row review",
   "upload.sheet": "Sheet",
   "upload.row": "Row",
+  "upload.statusNew": "New",
+  "upload.statusConflict": "Conflict",
+  "upload.statusError": "Error",
   "common.status": "Status",
   "common.date": "Date",
   "common.line": "Line",
@@ -16,6 +19,11 @@ const legacy: Partial<Record<TranslationKey, string>> = {
 
 export function UploadReviewTable({ review }: { review: UploadReview }) {
   const { t } = useI18n(legacy);
+  const statusLabel = {
+    new: t("upload.statusNew"),
+    conflict: t("upload.statusConflict"),
+    error: t("upload.statusError"),
+  } as const;
   return <section aria-label={t("upload.reviewRegion")}>
     <h2>{t("upload.review")}</h2>
     <div className="table-scroll" tabIndex={0} role="region" aria-label={t("upload.reviewRegion")}>
@@ -36,7 +44,7 @@ export function UploadReviewTable({ review }: { review: UploadReview }) {
         {review.rows.map((row) => <tr key={`${row.sourceSheet}-${row.sourceRow}`}>
           <td>{row.sourceSheet}</td>
           <td>{row.sourceRow}</td>
-          <td>{row.status}</td>
+          <td>{statusLabel[row.status]}</td>
           <td>{row.productionDate}</td>
           <td>{row.lineCode}</td>
           <td>{row.modelCode}</td>
@@ -46,7 +54,7 @@ export function UploadReviewTable({ review }: { review: UploadReview }) {
         {review.diagnostics.map((diagnostic) => <tr key={`diagnostic-${diagnostic.sourceSheet}-${diagnostic.sourceRow}`}>
           <td>{diagnostic.sourceSheet}</td>
           <td>{diagnostic.sourceRow}</td>
-          <td>error</td>
+          <td>{t("upload.statusError")}</td>
           <td colSpan={4}>—</td>
           <td>{diagnostic.messages.join("; ")}</td>
         </tr>)}
