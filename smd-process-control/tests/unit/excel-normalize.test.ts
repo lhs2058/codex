@@ -50,11 +50,12 @@ describe("Excel import normalization", () => {
     [59, "1900-02-28"],
     [61, "1900-03-01"],
     [46230, "2026-07-27"],
+    [2_958_465, "9999-12-31"],
   ])("uses Excel's 1900 date system for serial %i", (serial, expected) => {
     expect(normalizeProductionDate(serial)).toBe(expected);
   });
 
-  it.each([0, -1, 1.5, 60])("rejects unsupported Excel serial %s", (serial) => {
+  it.each([0, -1, 1.5, 60, 2_958_466])("rejects unsupported Excel serial %s", (serial) => {
     expect(() => normalizeProductionDate(serial)).toThrow("Invalid Excel date serial");
   });
 
