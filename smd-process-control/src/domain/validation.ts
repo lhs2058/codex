@@ -33,6 +33,10 @@ function downtimeSeconds(row: DowntimeDraft): number | null {
   const start = sh * 3600 + sm * 60; const end = eh * 3600 + em * 60;
   return end >= start ? end - start : end + 86400 - start;
 }
+export function downtimeDurationMinutes(row: DowntimeDraft): number | null {
+  const seconds = downtimeSeconds(row);
+  return seconds !== null && seconds % 60 === 0 ? seconds / 60 : null;
+}
 
 export function validateDowntime(rows: DowntimeDraft[], plannedSeconds: number): { ok: true } | { ok: false; code: "downtime-exceeds-planned-time" } {
   if (!Number.isFinite(plannedSeconds) || plannedSeconds < 0) return { ok: false, code: "downtime-exceeds-planned-time" };

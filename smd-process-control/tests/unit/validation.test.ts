@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { previewProductionMetrics, productionEntrySchema, validateDowntime } from "../../src/domain/validation";
+import { downtimeDurationMinutes, previewProductionMetrics, productionEntrySchema, validateDowntime } from "../../src/domain/validation";
 import type { MasterDataSnapshot, ProductionEntryDraft } from "../../src/domain/types";
 
 const validDraft: ProductionEntryDraft = { productionDate: "2026-07-28", shiftId: "shift-day", timeSlotId: "slot-a", lineId: "line-1", modelId: "model-a", processId: "process-aoi", inputQty: 10, actualQty: 9, okQty: 9, ngQty: 1, note: "", downtime: [] };
@@ -23,6 +23,7 @@ describe("validateDowntime", () => {
     expect(validateDowntime([{ reasonId: "breakdown", minutes: 1, startTime: "08:00", endTime: "08:01", note: "" }], 3600).ok).toBe(false);
   });
   it("rejects fractional manual minutes", () => expect(productionEntrySchema.safeParse({ ...validDraft, downtime: [{ reasonId: "breakdown", minutes: 1.5, note: "" }] }).success).toBe(false));
+  it("shares overnight minute duration for range and manual rows", () => expect([downtimeDurationMinutes({ reasonId: "a", startTime: "23:30", endTime: "00:15", note: "" }), downtimeDurationMinutes({ reasonId: "b", minutes: 5, note: "" })]).toEqual([45, 5]));
 });
 
 describe("previewProductionMetrics", () => {

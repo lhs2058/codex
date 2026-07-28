@@ -1,6 +1,6 @@
 begin;
 
-select plan(23);
+select plan(25);
 
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at)
 values
@@ -60,6 +60,22 @@ select throws_ok(
       'process_id', (select id from public.processes where code = 'SPI'),
       'input_qty', 1, 'actual_qty', 1), null)$$,
   '40001', 'record_version_conflict', 'NULL expected version is rejected for create'
+);
+select throws_ok(
+  $$select public.save_production_record(jsonb_build_object(
+    'production_date', (now() at time zone 'Asia/Bangkok')::date,
+    'shift_id', '00000000-0000-0000-0000-000000000203',
+    'time_slot_id', '00000000-0000-0000-0000-000000000204',
+    'line_id', '00000000-0000-0000-0000-000000000202',
+    'model_id', '00000000-0000-0000-0000-000000000201',
+    'process_id', (select id from public.processes where code = 'SPI'),
+    'input_qty', 1, 'actual_qty', 1, 'ok_qty', 1, 'ng_qty', 0, 'note', 'seconds-range',
+    'downtime', jsonb_build_array(jsonb_build_object('reason_id', '00000000-0000-0000-0000-000000000209', 'start_time', '08:00:30', 'end_time', '08:01:30', 'note', 'fractional minute'))), 0)$$,
+  '22023', 'invalid_downtime_duration', 'second-level downtime range is rejected'
+);
+select is_empty(
+  $$select * from public.production_records where note = 'seconds-range'$$,
+  'invalid downtime range leaves no production record'
 );
 select throws_ok(
   $$update public.production_records set line_id = '00000000-0000-0000-0000-000000000205' where created_by = auth.uid()$$,
