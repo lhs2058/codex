@@ -47,6 +47,7 @@ export function createQualityRepository(client: QualityClient = getSupabaseClien
             .in("production_record_id", productionIdChunk)
             .is("deleted_at", null),
           "dashboard_quality_lookup_failed",
+          (row) => String(row.id),
         ));
       }
       return rows.map((row) => ({

@@ -60,7 +60,10 @@ function productionRecord(overrides: Partial<DashboardProductionRecord> = {}): D
   };
 }
 
-function cappedClient(tables: Record<string, Array<Record<string, unknown>>>) {
+function cappedClient(
+  tables: Record<string, Array<Record<string, unknown>>>,
+  { overlapPages = false }: { overlapPages?: boolean } = {},
+) {
   return {
     rpc: vi.fn(),
     from: vi.fn((table: string) => {
@@ -87,7 +90,8 @@ function cappedClient(tables: Record<string, Array<Record<string, unknown>>>) {
             .filter((row) => [...equals].every(([column, value]) => (row[column] ?? null) === value))
             .filter((row) => [...included].every(([column, values]) => values.includes(row[column])));
           if (orderColumn) rows.sort((left, right) => String(left[orderColumn!]).localeCompare(String(right[orderColumn!])));
-          rows = rows.slice(start, Math.min(end + 1, start + 1000));
+          const pageStart = overlapPages && start > 0 ? start - 1 : start;
+          rows = rows.slice(pageStart, Math.min(end + 1, pageStart + 1000));
           return Promise.resolve({ data: rows, error: null }).then(resolve, reject);
         },
       };
@@ -249,7 +253,7 @@ describe("dashboard repository", () => {
 });
 
 describe("dashboard repository pagination", () => {
-  it("includes production, quality, and downtime rows beyond the server's first 1,000-row page", async () => {
+  it("counts overlapping production, quality, and downtime pages exactly once", async () => {
     const productionRows = Array.from({ length: 1001 }, (_, index) => ({
       id: `production-${String(index).padStart(4, "0")}`,
       production_date: "2026-07-28",
@@ -277,14 +281,14 @@ describe("dashboard repository pagination", () => {
       id: `downtime-${String(index).padStart(4, "0")}`,
       production_record_id: "production-0000",
       reason_id: "reason-breakdown",
-      minutes: index === 1000 ? 7 : 0,
+      minutes: index === 999 ? 5 : index === 1000 ? 7 : 0,
       deleted_at: null,
     }));
     const client = cappedClient({
       production_records: productionRows,
       quality_records: qualityRows,
       downtime_records: downtimeRows,
-    });
+    }, { overlapPages: true });
     const repository = createDashboardRepository({
       master: { listMasterData: vi.fn().mockResolvedValue(master) },
       production: createProductionRepository(client as never),
@@ -296,7 +300,37 @@ describe("dashboard repository pagination", () => {
     expect(snapshot.totalActual).toBe(1001);
     expect(snapshot.weightedYield).toEqual({ status: "ok", value: 50 });
     expect(snapshot.yields[0].result).toEqual({ status: "ok", value: 50 });
-    expect(snapshot.downtime).toEqual([{ reasonId: "reason-breakdown", reasonName: "설비 고장", minutes: 7 }]);
+    expect(snapshot.downtime).toEqual([{ reasonId: "reason-breakdown", reasonName: "설비 고장", minutes: 12 }]);
+  });
+
+  it("counts quality rows once when repeated production IDs would cross chunk boundaries", async () => {
+    const productionIds = Array.from({ length: 101 }, (_, index) => `production-${String(index).padStart(4, "0")}`);
+    const client = cappedClient({
+      quality_records: productionIds.map((productionRecordId, index) => ({
+        id: `quality-${String(index).padStart(4, "0")}`,
+        production_record_id: productionRecordId,
+        production_date: "2026-07-28",
+        line_id: "line-1",
+        model_id: "model-a",
+        process_id: "process-aoi",
+        input_qty: 1,
+        ok_qty: 1,
+        deleted_at: null,
+      })),
+    });
+    const quality = createQualityRepository(client as never);
+
+    const rows = await quality.listDashboardQuality({
+      productionDate: "2026-07-28",
+      shiftId: "shift-day",
+      modelId: "model-a",
+      lineId: "line-1",
+      processId: "process-aoi",
+      productionRecordIds: [...productionIds.slice(0, 100), productionIds[0], productionIds[100]],
+    });
+
+    expect(rows).toHaveLength(101);
+    expect(rows.reduce((total, row) => total + row.okQty, 0)).toBe(101);
   });
 });
 

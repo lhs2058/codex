@@ -62,6 +62,7 @@ export function createProductionRepository(client: ProductionClient = getSupabas
           filters,
         ),
         "dashboard_production_lookup_failed",
+        (row) => String(row.id),
       );
       const productionIds = rows.map((row) => String(row.id));
       let downtimeRows: Record<string, unknown>[] = [];
@@ -72,6 +73,7 @@ export function createProductionRepository(client: ProductionClient = getSupabas
             .in("production_record_id", productionIdChunk)
             .is("deleted_at", null),
           "dashboard_downtime_lookup_failed",
+          (row) => String(row.id),
         ));
       }
       return rows.map((row) => ({
