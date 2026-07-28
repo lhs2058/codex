@@ -5,7 +5,7 @@ import type { MasterDataSnapshot } from "../../src/domain/types";
 
 const snapshot: MasterDataSnapshot = {
   models: [], processes: [{ id: "p1", code: "SPI", name: "SPI", active: true }], lines: [{ id: "l1", code: "L1", name: "Line 1", active: true }], shifts: [], timeSlots: [],
-  downtimeReasons: [{ id: "d1", code: "WAIT", name: "Wait", active: true }], standardTimes: [],
+  downtimeReasons: [{ id: "d1", code: "WAIT", name: "Wait", active: true, version: 1 }], standardTimes: [],
 };
 
 describe("AdminPage", () => {
@@ -21,7 +21,7 @@ describe("AdminPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add model" }));
     await waitFor(() => expect(createModel).toHaveBeenCalledWith({ code: "M-1", name: "Model One" }));
     fireEvent.click(screen.getByRole("button", { name: "Deactivate Wait" }));
-    await waitFor(() => expect(deactivateDowntimeReason).toHaveBeenCalledWith("d1"));
+    await waitFor(() => expect(deactivateDowntimeReason).toHaveBeenCalledWith("d1", 1));
     fireEvent.change(screen.getByLabelText("ST model"), { target: { value: "m1" } });
     fireEvent.change(screen.getByLabelText("Seconds per unit"), { target: { value: "0.82" } });
     fireEvent.change(screen.getByLabelText("Effective from"), { target: { value: "2026-07-01" } });
@@ -46,5 +46,20 @@ describe("AdminPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create user" }));
     await waitFor(() => expect(createUser).toHaveBeenCalledWith({ employeeId: "1234", displayName: "Kim", role: "viewer", temporaryPassword: "a secure password" }));
     expect(screen.queryByDisplayValue("a secure password")).not.toBeInTheDocument();
+  });
+
+  it("does not call mutations for invalid model or zero-second ST input", async () => {
+    const createModel = vi.fn(); const saveStandardTime = vi.fn();
+    render(<AdminPage repository={{ listMasterData: vi.fn().mockResolvedValue(snapshot), createModel, deactivateDowntimeReason: vi.fn(), saveStandardTime }} createUser={vi.fn()} />);
+    await screen.findByText("Wait");
+    fireEvent.change(screen.getByLabelText("Model code"), { target: { value: "   " } });
+    fireEvent.change(screen.getByLabelText("Model name"), { target: { value: "   " } });
+    fireEvent.click(screen.getByRole("button", { name: "Add model" }));
+    expect(createModel).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("ST model"), { target: { value: "m1" } });
+    fireEvent.change(screen.getByLabelText("Seconds per unit"), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText("Effective from"), { target: { value: "2026-07-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save standard time" }));
+    expect(saveStandardTime).not.toHaveBeenCalled();
   });
 });

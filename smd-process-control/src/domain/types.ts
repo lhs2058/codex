@@ -44,12 +44,12 @@ export interface TimeSlot {
 }
 
 export interface MasterDataSnapshot {
-  models: Array<{ id: string; code: string; name: string; active: boolean }>;
+  models: Array<{ id: string; code: string; name: string; active: boolean; version: number }>;
   processes: Array<{ id: string; code: ProcessCode; name: string; active: boolean }>;
   lines: Array<{ id: string; code: string; name: string; active: boolean }>;
   shifts: Array<{ id: string; code: string; name: string; active: boolean }>;
   timeSlots: TimeSlot[];
-  downtimeReasons: Array<{ id: string; code: string; name: string; active: boolean }>;
+  downtimeReasons: Array<{ id: string; code: string; name: string; active: boolean; version: number }>;
   standardTimes: StandardTime[];
 }
 
