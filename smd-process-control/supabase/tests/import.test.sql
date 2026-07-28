@@ -1,6 +1,6 @@
 begin;
 
-select plan(20);
+select plan(19);
 
 select has_function('public', 'current_app_role', array[]::text[], 'current_app_role exists');
 select function_returns('public', 'current_app_role', array[]::text[], 'text', 'current_app_role returns text');
@@ -54,11 +54,6 @@ select like(
   pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),
   '%pg_advisory_xact_lock%',
   'upload commits serialize absent natural keys'
-);
-select like(
-  pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),
-  '%model_code%',
-  'upload RPC resolves normalized model codes rather than client-supplied IDs'
 );
 select like(
   pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),

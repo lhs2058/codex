@@ -1,6 +1,6 @@
 begin;
 
-select plan(17);
+select plan(23);
 
 insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at)
 values
@@ -24,6 +24,8 @@ insert into public.shifts (id, code, name)
 values ('00000000-0000-0000-0000-000000000203', 'TEST-SHIFT', 'Test shift');
 insert into public.time_slots (id, shift_id, code, starts_at, ends_at, sequence)
 values ('00000000-0000-0000-0000-000000000204', '00000000-0000-0000-0000-000000000203', 'TEST-SLOT', '08:00', '09:00', 1);
+insert into public.downtime_reasons (id, code, name)
+values ('00000000-0000-0000-0000-000000000209', 'TEST-DT', 'Test downtime');
 
 set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000101', true);
@@ -103,6 +105,36 @@ select ok(
   exists (select 1 from public.audit_logs where actor_id = auth.uid() and table_name = 'production_records' and action = 'insert' and after_data ? 'input_qty'),
   'audit records actor, action, and after data for committed production'
 );
+insert into public.defect_records (quality_record_id, defect_type, classification, quantity, created_by, updated_by)
+select id, 'Test defect', 'real', 1, auth.uid(), auth.uid()
+from public.quality_records where production_record_id = (
+  select id from public.production_records where line_id = '00000000-0000-0000-0000-000000000205' and deleted_at is null
+) and deleted_at is null;
+insert into public.downtime_records (production_record_id, reason_id, minutes, created_by, updated_by)
+select id, '00000000-0000-0000-0000-000000000209', 5, auth.uid(), auth.uid()
+from public.production_records where line_id = '00000000-0000-0000-0000-000000000205' and deleted_at is null;
+insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
+values ('00000000-0000-0000-0000-000000000210', 'replace-zero.xlsx', 'test/replace-zero.xlsx', 'standard', auth.uid(), auth.uid());
+insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, created_by, updated_by)
+values ('00000000-0000-0000-0000-000000000210', 'Production', 4,
+  jsonb_build_object('sourceSheet','Production','sourceRow',4,'productionDate',(now() at time zone 'Asia/Bangkok')::date,
+    'shiftCode','TEST-SHIFT','timeSlotCode','TEST-SLOT','lineCode','TEST-LINE-2','modelCode','TEST-MODEL','processCode','SPI',
+    'inputQty',4,'actualQty',4,'okQty',3,'ngQty',1,'downtimeMinutes',0,'downtimeReasonCode',null,'note','replace zero'),
+  'conflict', auth.uid(), auth.uid());
+select lives_ok($$select public.commit_upload_batch('00000000-0000-0000-0000-000000000210', true)$$, 'admin replaces a conflicting normalized row');
+select is((select count(*)::integer from public.quality_records q join public.production_records p on p.id=q.production_record_id where p.line_id='00000000-0000-0000-0000-000000000205' and q.deleted_at is null), 1, 'replacement leaves exactly one active quality record');
+select is((select count(*)::integer from public.downtime_records d join public.production_records p on p.id=d.production_record_id where p.line_id='00000000-0000-0000-0000-000000000205' and d.deleted_at is null), 0, 'zero incoming downtime retires all active downtime');
+select is((select count(*)::integer from public.defect_records d join public.quality_records q on q.id=d.quality_record_id join public.production_records p on p.id=q.production_record_id where p.line_id='00000000-0000-0000-0000-000000000205' and d.deleted_at is not null), 1, 'replacement retires defects attached to retired quality');
+insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
+values ('00000000-0000-0000-0000-000000000211', 'replace-downtime.xlsx', 'test/replace-downtime.xlsx', 'standard', auth.uid(), auth.uid());
+insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, created_by, updated_by)
+values ('00000000-0000-0000-0000-000000000211', 'Production', 5,
+  jsonb_build_object('sourceSheet','Production','sourceRow',5,'productionDate',(now() at time zone 'Asia/Bangkok')::date,
+    'shiftCode','TEST-SHIFT','timeSlotCode','TEST-SLOT','lineCode','TEST-LINE-2','modelCode','TEST-MODEL','processCode','SPI',
+    'inputQty',4,'actualQty',4,'okQty',4,'ngQty',0,'downtimeMinutes',3,'downtimeReasonCode','TEST-DT','note','replace downtime'),
+  'conflict', auth.uid(), auth.uid());
+select lives_ok($$select public.commit_upload_batch('00000000-0000-0000-0000-000000000211', true)$$, 'admin replaces conflict with downtime');
+select is((select count(*)::integer from public.downtime_records d join public.production_records p on p.id=d.production_record_id where p.line_id='00000000-0000-0000-0000-000000000205' and d.deleted_at is null), 1, 'nonzero replacement leaves exactly one active downtime record');
 insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
 values ('00000000-0000-0000-0000-000000000208', 'snake.xlsx', 'test/snake.xlsx', 'standard', auth.uid(), auth.uid());
 insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, created_by, updated_by)
