@@ -6,6 +6,9 @@ export type ImportRowErrorCode =
   | "unknown-model"
   | "unknown-line"
   | "unknown-process"
+  | "unknown-shift"
+  | "unknown-time-slot"
+  | "unknown-downtime-reason"
   | "invalid-count"
   | "duplicate-record"
   | "unsupported-template-version";
@@ -146,6 +149,7 @@ export interface UploadReview {
   errorCount: number;
   unknownMasterDataCount: number;
   rows: Array<NormalizedImportRow & { status: "new" | "conflict" | "error"; messages: string[] }>;
+  diagnostics: Array<{ sourceSheet: string; sourceRow: number; messages: string[] }>;
 }
 
 export interface UploadCommitResult {

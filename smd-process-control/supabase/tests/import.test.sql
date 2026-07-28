@@ -1,6 +1,6 @@
 begin;
 
-select plan(20);
+select plan(23);
 
 select has_function('public', 'current_app_role', array[]::text[], 'current_app_role exists');
 select function_returns('public', 'current_app_role', array[]::text[], 'text', 'current_app_role returns text');
@@ -69,6 +69,31 @@ select unlike(
   pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),
   '%model_code%',
   'upload RPC rejects the legacy snake_case payload contract'
+);
+select ok(
+  exists (
+    select 1 from storage.buckets
+    where id = 'smd-upload-originals' and public = false
+  ),
+  'upload originals use a private storage bucket'
+);
+select ok(
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects'
+      and policyname = 'smd_upload_originals_insert'
+      and cmd = 'INSERT'
+  ),
+  'operators and admins have a scoped original-file insert policy'
+);
+select ok(
+  exists (
+    select 1 from pg_policies
+    where schemaname = 'storage' and tablename = 'objects'
+      and policyname = 'smd_upload_originals_select'
+      and cmd = 'SELECT'
+  ),
+  'owners and admins have a scoped original-file read policy'
 );
 
 select finish();
