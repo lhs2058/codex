@@ -9,6 +9,14 @@ const snapshot: MasterDataSnapshot = {
 };
 
 describe("AdminPage", () => {
+  it("submits the selected ST dimensions and bounded end date", async () => {
+    const saveStandardTime = vi.fn().mockResolvedValue({ id: "st" });
+    const rich = { ...snapshot, models: [{ id: "m2", code: "M2", name: "M2", active: true, version: 1 }], processes: [...snapshot.processes, { id: "p2", code: "AOI" as const, name: "AOI", active: true }], lines: [...snapshot.lines, { id: "l2", code: "L2", name: "L2", active: true }] };
+    render(<AdminPage repository={{ listMasterData: vi.fn().mockResolvedValue(rich), createModel: vi.fn(), deactivateDowntimeReason: vi.fn(), saveStandardTime }} createUser={vi.fn()} />);
+    await screen.findByText("Wait");
+    fireEvent.change(screen.getByLabelText("ST model"), { target: { value: "m2" } }); fireEvent.change(screen.getByLabelText("Process"), { target: { value: "p2" } }); fireEvent.change(screen.getByLabelText("Line"), { target: { value: "l2" } }); fireEvent.change(screen.getByLabelText("Seconds per unit"), { target: { value: "1.2" } }); fireEvent.change(screen.getByLabelText("Effective from"), { target: { value: "2026-01-01" } }); fireEvent.change(screen.getByLabelText("Effective to"), { target: { value: "2026-12-31" } }); fireEvent.click(screen.getByRole("button", { name: "Save standard time" }));
+    await waitFor(() => expect(saveStandardTime).toHaveBeenCalledWith({ modelId: "m2", processId: "p2", lineId: "l2", secondsPerUnit: 1.2, effectiveFrom: "2026-01-01", effectiveTo: "2026-12-31" }));
+  });
   it("adds a model, soft-disables a downtime reason, and refreshes after saving an ST", async () => {
     const listMasterData = vi.fn().mockResolvedValue(snapshot);
     const createModel = vi.fn().mockResolvedValue(undefined);
