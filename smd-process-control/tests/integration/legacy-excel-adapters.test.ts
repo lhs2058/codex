@@ -52,7 +52,7 @@ describe("legacy Excel adapters", () => {
       expect.objectContaining({ sourceSheet: "25.07", sourceRow: 13, lineCode: "ROUTER-2", modelCode: "MODEL-A", processCode: "ROUTER", timeSlotCode: "A", actualQty: 8 }),
     ]));
     expect(result.rows.every((row) => row.inputQty === 0 && row.okQty === 0 && row.ngQty === 0)).toBe(true);
-    expect(result.diagnostics).toEqual([]);
+    expect(result.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ sourceRow: 14, code: "missing-required-value", field: "modelCode" })]));
   });
 
   it("returns row-specific diagnostics instead of throwing for malformed in-memory quality data", () => {

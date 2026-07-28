@@ -37,6 +37,16 @@ describe("workbook detection", () => {
     expect(detectWorkbook([sheet("Total AOI", [["#DIV/0!", "", null]])]).kind).toBe("unknown");
   });
 
+  it("detects a date sheet only when its grouped production title and time headers also match", () => {
+    const grouped = sheet("25.07", [
+      [], ["BÁO CÁO SẢN LƯỢNG CÁC CÔNG ĐOẠN SMD THEO TIME NGÀY 25/07/2026"], ["Sản Lượng Từng Time"],
+      ["Time A", "Time B", "Time C", "Time D", "Time E"], [],
+      ["CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú", "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú"],
+    ]);
+    expect(detectWorkbook([grouped]).kind).toBe("production");
+    expect(detectWorkbook([sheet("25.07", [["random"]])]).kind).toBe("unknown");
+  });
+
   it("reports an unsupported standard version", () => {
     const result = detectWorkbook([sheet("Production", [["SMD_STANDARD_V2"], ["Production Date", "Shift"]])]);
     expect(result.kind).toBe("unknown");
