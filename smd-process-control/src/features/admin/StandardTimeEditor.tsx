@@ -1,6 +1,75 @@
 import { useState } from "react";
 import type { MasterDataSnapshot, StandardTimeInput } from "../../domain/types";
-export function StandardTimeEditor({ snapshot, save, disabled = false }: { snapshot: MasterDataSnapshot; save(input: StandardTimeInput): Promise<unknown>; disabled?: boolean }) {
- const [modelId,setModelId]=useState(""); const [processId,setProcessId]=useState(""); const [lineId,setLineId]=useState(""); const [seconds,setSeconds]=useState(""); const [from,setFrom]=useState(""); const [to,setTo]=useState(""); const [error,setError]=useState("");
- return <section aria-label="Standard time"><h2>Standard time</h2><form onSubmit={async e=>{e.preventDefault();const value=Number(seconds);if(!modelId||!processId||!lineId||!from||!Number.isFinite(value)||value<=0){setError("Enter valid standard time values.");return;}setError("");try{await save({modelId,processId,lineId,secondsPerUnit:value,effectiveFrom:from,effectiveTo:to||null});setSeconds("");setFrom("");setTo("");}catch(cause){setError(cause instanceof Error&&cause.message==="overlapping-effective-period"?"Effective period overlaps an existing standard time.":"Unable to save standard time.");}}}><label>ST model<input disabled={disabled} aria-label="ST model" value={modelId} onChange={e=>setModelId(e.target.value)} required/></label><label>Process<select disabled={disabled} aria-label="Process" value={processId} onChange={e=>setProcessId(e.target.value)} required><option value="">Select process</option>{snapshot.processes.map(v=><option key={v.id} value={v.id}>{v.code}</option>)}</select></label><label>Line<select disabled={disabled} aria-label="Line" value={lineId} onChange={e=>setLineId(e.target.value)} required><option value="">Select line</option>{snapshot.lines.map(v=><option key={v.id} value={v.id}>{v.code}</option>)}</select></label><label>Seconds per unit<input disabled={disabled} type="number" min="0.000001" step="any" value={seconds} onChange={e=>setSeconds(e.target.value)} required/></label><label>Effective from<input disabled={disabled} type="date" value={from} onChange={e=>setFrom(e.target.value)} required/></label><label>Effective to<input disabled={disabled} type="date" value={to} onChange={e=>setTo(e.target.value)}/></label><button disabled={disabled}>Save standard time</button></form>{error&&<p role="alert">{error}</p>}</section>;
+import { useI18n, type TranslationKey } from "../../i18n";
+
+const legacy: Partial<Record<TranslationKey, string>> = {
+  "admin.standardTime": "Standard time",
+  "admin.stModel": "ST model",
+  "common.process": "Process",
+  "common.line": "Line",
+  "common.select": "Select",
+  "admin.secondsPerUnit": "Seconds per unit",
+  "admin.effectiveFrom": "Effective from",
+  "admin.effectiveTo": "Effective to",
+  "admin.saveStandardTime": "Save standard time",
+  "admin.invalidStandardTime": "Enter valid standard time values.",
+  "admin.overlap": "Effective period overlaps an existing standard time.",
+  "admin.standardTimeSaveError": "Unable to save standard time.",
+};
+
+export function StandardTimeEditor({
+  snapshot,
+  save,
+  disabled = false,
+}: {
+  snapshot: MasterDataSnapshot;
+  save(value: StandardTimeInput): Promise<void>;
+  disabled?: boolean;
+}) {
+  const { t } = useI18n(legacy);
+  const [modelId, setModelId] = useState("");
+  const [processId, setProcessId] = useState("");
+  const [lineId, setLineId] = useState("");
+  const [seconds, setSeconds] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [error, setError] = useState("");
+
+  return <section aria-label={t("admin.standardTime")}>
+    <h2>{t("admin.standardTime")}</h2>
+    <form className="admin-form" onSubmit={async (event) => {
+      event.preventDefault();
+      const value = Number(seconds);
+      if (!modelId || !processId || !lineId || !from || !Number.isFinite(value) || value <= 0) {
+        setError(t("admin.invalidStandardTime"));
+        return;
+      }
+      setError("");
+      try {
+        await save({ modelId, processId, lineId, secondsPerUnit: value, effectiveFrom: from, effectiveTo: to || null });
+        setSeconds("");
+        setFrom("");
+        setTo("");
+      } catch (cause) {
+        setError(cause instanceof Error && cause.message === "overlapping-effective-period"
+          ? t("admin.overlap")
+          : t("admin.standardTimeSaveError"));
+      }
+    }}>
+      <label htmlFor="st-model">{t("admin.stModel")}</label>
+      <input id="st-model" disabled={disabled} value={modelId} onChange={(event) => setModelId(event.target.value)} required />
+      <label htmlFor="st-process">{t("common.process")}</label>
+      <select id="st-process" disabled={disabled} value={processId} onChange={(event) => setProcessId(event.target.value)} required><option value="">{t("common.select")} {t("common.process")}</option>{snapshot.processes.map((value) => <option key={value.id} value={value.id}>{value.code}</option>)}</select>
+      <label htmlFor="st-line">{t("common.line")}</label>
+      <select id="st-line" disabled={disabled} value={lineId} onChange={(event) => setLineId(event.target.value)} required><option value="">{t("common.select")} {t("common.line")}</option>{snapshot.lines.map((value) => <option key={value.id} value={value.id}>{value.code}</option>)}</select>
+      <label htmlFor="st-seconds">{t("admin.secondsPerUnit")}</label>
+      <input id="st-seconds" disabled={disabled} type="number" min="0.000001" step="any" value={seconds} onChange={(event) => setSeconds(event.target.value)} required />
+      <label htmlFor="st-from">{t("admin.effectiveFrom")}</label>
+      <input id="st-from" disabled={disabled} type="date" value={from} onChange={(event) => setFrom(event.target.value)} required />
+      <label htmlFor="st-to">{t("admin.effectiveTo")}</label>
+      <input id="st-to" disabled={disabled} type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+      <button disabled={disabled}>{t("admin.saveStandardTime")}</button>
+    </form>
+    {error && <p role="alert">{error}</p>}
+  </section>;
 }

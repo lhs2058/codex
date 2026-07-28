@@ -1,19 +1,35 @@
 import type { UploadReview } from "../../domain/types";
+import { useI18n, type TranslationKey } from "../../i18n";
+
+const legacy: Partial<Record<TranslationKey, string>> = {
+  "upload.review": "Row review",
+  "upload.reviewRegion": "Upload row review",
+  "upload.sheet": "Sheet",
+  "upload.row": "Row",
+  "common.status": "Status",
+  "common.date": "Date",
+  "common.line": "Line",
+  "common.model": "Model",
+  "common.process": "Process",
+  "common.messages": "Messages",
+};
 
 export function UploadReviewTable({ review }: { review: UploadReview }) {
-  return <section aria-label="Upload row review">
-    <h2>Row review</h2>
+  const { t } = useI18n(legacy);
+  return <section aria-label={t("upload.reviewRegion")}>
+    <h2>{t("upload.review")}</h2>
+    <div className="table-scroll" tabIndex={0} role="region" aria-label={t("upload.reviewRegion")}>
     <table className="upload-review-table">
       <thead>
         <tr>
-          <th>Sheet</th>
-          <th>Row</th>
-          <th>Status</th>
-          <th>Date</th>
-          <th>Line</th>
-          <th>Model</th>
-          <th>Process</th>
-          <th>Messages</th>
+          <th>{t("upload.sheet")}</th>
+          <th>{t("upload.row")}</th>
+          <th>{t("common.status")}</th>
+          <th>{t("common.date")}</th>
+          <th>{t("common.line")}</th>
+          <th>{t("common.model")}</th>
+          <th>{t("common.process")}</th>
+          <th>{t("common.messages")}</th>
         </tr>
       </thead>
       <tbody>
@@ -35,6 +51,6 @@ export function UploadReviewTable({ review }: { review: UploadReview }) {
           <td>{diagnostic.messages.join("; ")}</td>
         </tr>)}
       </tbody>
-    </table>
+    </table></div>
   </section>;
 }

@@ -1,19 +1,248 @@
 :root {
-  font-family: Arial, sans-serif;
+  font-family: "Noto Sans KR", Arial, sans-serif;
   color: #111827;
   background: #f8fafc;
 }
 
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
   margin: 0;
+  min-width: 320px;
+}
+
+body {
+  overflow-x: visible;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+select,
+input[type="file"] {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled,
+input:disabled {
+  cursor: not-allowed;
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid #2563eb;
+  outline-offset: 3px;
 }
 
 main {
   padding: 2rem;
 }
 
-nav a {
-  margin-right: 1rem;
+.sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.menu-toggle {
+  display: none;
+}
+
+.language-picker {
+  display: grid;
+  gap: 6px;
+  margin: 24px 10px 0;
+  color: #a8b3ca;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.language-picker select {
+  width: 100%;
+  min-height: 38px;
+  padding: 0 8px;
+  border: 1px solid #41506d;
+  border-radius: 8px;
+  background: #1b2945;
+  color: #fff;
+}
+
+.app-content {
+  min-width: 0;
+}
+
+.feature-main {
+  width: auto;
+  min-height: 100vh;
+  margin-left: 238px;
+  padding: 34px clamp(22px, 3vw, 48px) 48px;
+}
+
+.feature-main > h1 {
+  margin-top: 0;
+}
+
+.entry-form,
+.admin-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 18px;
+  max-width: 960px;
+  padding: 22px;
+  border: 1px solid #e1e7f0;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.entry-form > label,
+.admin-form > label,
+.login-main label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  color: #536078;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.entry-form input,
+.entry-form select,
+.entry-form textarea,
+.admin-form input,
+.admin-form select,
+.login-main input {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #cfd8e6;
+  border-radius: 8px;
+  background: #fff;
+  color: #172033;
+}
+
+[aria-invalid="true"] {
+  border-color: #c83737 !important;
+  box-shadow: 0 0 0 2px #c8373720;
+}
+
+.entry-form textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.entry-form > fieldset,
+.entry-form > section,
+.entry-form > p,
+.entry-form > button {
+  grid-column: 1 / -1;
+}
+
+.entry-form button,
+.admin-form button,
+.upload-main button,
+.login-main button {
+  min-height: 42px;
+  padding: 8px 15px;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 700;
+}
+
+.downtime-editor {
+  min-width: 0;
+  border: 1px solid #d8e0eb;
+  border-radius: 10px;
+}
+
+.downtime-row {
+  display: grid;
+  grid-template-columns: auto minmax(90px, 1fr);
+  gap: 8px 12px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5eaf1;
+}
+
+.downtime-row input,
+.downtime-row select {
+  min-width: 0;
+  width: 100%;
+}
+
+.entry-preview {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #eef6ff;
+}
+
+.entry-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.entry-comparison section {
+  padding: 18px;
+  border: 1px solid #e1e7f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.entry-comparison dl > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.entry-comparison dd {
+  margin: 0;
+}
+
+.admin-main > section {
+  max-width: 960px;
+  margin-block: 20px;
+  padding: 20px;
+  border: 1px solid #e1e7f0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.admin-form {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.login-main {
+  width: min(100% - 32px, 420px);
+  margin: 8vh auto;
+  padding: 28px;
+  border: 1px solid #e1e7f0;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.login-main form {
+  display: grid;
+  gap: 14px;
 }
 
 .upload-actions,
@@ -34,10 +263,63 @@ nav a {
 }
 
 .upload-review-table {
-  width: 100%;
+  width: max(100%, 760px);
   margin-bottom: 1rem;
   border-collapse: collapse;
   background: #ffffff;
+}
+
+.table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.table-scroll:focus-visible {
+  border-radius: 4px;
+}
+
+@media (max-width: 820px) {
+  .menu-toggle {
+    position: relative;
+    z-index: 20;
+    display: block;
+    width: calc(100% - 32px);
+    min-height: 42px;
+    margin: 12px 16px;
+    border: 1px solid #334361;
+    border-radius: 8px;
+    background: #111c36;
+    color: #fff;
+    font-weight: 700;
+  }
+
+  .menu-collapsed .dashboard-sidebar {
+    display: none;
+  }
+
+  .feature-main {
+    min-height: auto;
+    margin-left: 0;
+    padding: 24px 16px 40px;
+  }
+
+  .entry-form,
+  .admin-form {
+    grid-template-columns: 1fr;
+  }
+
+  .entry-form > fieldset,
+  .entry-form > section,
+  .entry-form > p,
+  .entry-form > button {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 520px) {
+  .entry-comparison {
+    grid-template-columns: 1fr;
+  }
 }
 
 .upload-review-table th,

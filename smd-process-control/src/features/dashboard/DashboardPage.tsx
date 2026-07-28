@@ -10,6 +10,7 @@ import {
 import { EntryProgress } from "./EntryProgress";
 import { UtilizationBars } from "./UtilizationBars";
 import { YieldMatrix } from "./YieldMatrix";
+import { useI18n } from "../../i18n";
 
 function bangkokDate(): string {
   const parts = new Intl.DateTimeFormat("en", {
@@ -42,6 +43,7 @@ export interface DashboardPageProps {
   initialFilters?: DashboardFilters;
   masterRepository?: Pick<MasterDataRepository, "listMasterData">;
   dashboardRepository?: DashboardRepository;
+  embedded?: boolean;
 }
 
 export { loadDashboard, subscribeDashboard };
@@ -50,7 +52,9 @@ export function DashboardPage({
   initialFilters = defaultFilters(),
   masterRepository,
   dashboardRepository,
+  embedded = false,
 }: DashboardPageProps) {
+  const { language, t } = useI18n();
   const masterRef = useRef<Pick<MasterDataRepository, "listMasterData"> | null>(masterRepository ?? null);
   const dashboardRef = useRef<DashboardRepository | null>(dashboardRepository ?? null);
   const [master, setMaster] = useState<MasterDataSnapshot | null>(null);
@@ -65,13 +69,13 @@ export function DashboardPage({
     try {
       masterRef.current ??= createMasterDataRepository();
     } catch {
-      setError("생산 서비스 연결 설정을 확인해 주세요.");
+      setError(t("dashboard.connectionError"));
       setLoading(false);
       return () => { current = false; };
     }
     masterRef.current.listMasterData()
       .then((value) => { if (current) setMaster(value); })
-      .catch(() => { if (current) setError("기준정보를 불러오지 못했습니다."); });
+      .catch(() => { if (current) setError(t("dashboard.masterError")); });
     return () => { current = false; };
   }, []);
 
@@ -82,7 +86,7 @@ export function DashboardPage({
     try {
       dashboardRef.current ??= createDashboardRepository();
     } catch {
-      setError("생산 서비스 연결 설정을 확인해 주세요.");
+      setError(t("dashboard.connectionError"));
       setLoading(false);
       return () => { current = false; };
     }
@@ -94,7 +98,7 @@ export function DashboardPage({
       })
       .catch(() => {
         if (!current) return;
-        setError("대시보드를 불러오지 못했습니다.");
+        setError(t("dashboard.loadError"));
         setLoading(false);
       });
     return () => { current = false; };
@@ -106,7 +110,7 @@ export function DashboardPage({
     try {
       dashboardRef.current ??= createDashboardRepository();
     } catch {
-      setError("생산 서비스 연결 설정을 확인해 주세요.");
+      setError(t("dashboard.connectionError"));
       return;
     }
     const cleanup = dashboardRef.current.subscribeDashboard(filters, () => {
@@ -125,56 +129,60 @@ export function DashboardPage({
     setFilters((current) => ({ ...current, [key]: value }));
   }, []);
 
+  const content = <main className="dashboard-main">
+    <header className="dashboard-topbar">
+      <div><p className="dashboard-eyebrow">SMD PROCESS CONTROL</p><h1>{t("dashboard.title")}</h1><p>{t("dashboard.description")}</p></div>
+      <span className="dashboard-live"><i aria-hidden="true" /> LIVE</span>
+    </header>
+
+    {master && <form className="dashboard-filters" aria-label={t("dashboard.filters")} onSubmit={(event) => event.preventDefault()}>
+      <label>{t("filter.productionDate")}<input type="date" value={filters.productionDate} onChange={(event) => setFilter("productionDate", event.target.value)} /></label>
+      <label>{t("common.shift")}<select value={filters.shiftId ?? ""} onChange={(event) => setFilter("shiftId", event.target.value || null)}><option value="">{t("common.all")}</option>{master.shifts.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label>{t("common.model")}<select value={filters.modelId ?? ""} onChange={(event) => setFilter("modelId", event.target.value || null)}><option value="">{t("common.all")}</option>{master.models.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label>
+      <label>{t("common.line")}<select value={filters.lineId ?? ""} onChange={(event) => setFilter("lineId", event.target.value || null)}><option value="">{t("common.all")}</option>{master.lines.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+      <label>{t("common.process")}<select value={filters.processCode ?? ""} onChange={(event) => setFilter("processCode", (event.target.value || null) as ProcessCode | null)}><option value="">{t("common.all")}</option>{master.processes.filter((item) => item.active).map((item) => <option key={item.id} value={item.code}>{item.name}</option>)}</select></label>
+    </form>}
+
+    {error && <p className="dashboard-error" role="alert">{error}</p>}
+    {loading && !snapshot && <p className="dashboard-loading" role="status" aria-live="polite">{t("dashboard.loading")}</p>}
+    {snapshot && master && <>
+      <section className="dashboard-kpis" aria-label={t("kpi.region")}>
+        <article><span aria-hidden="true" className="kpi-icon is-blue">▤</span><div><p>{t("kpi.totalActual")}</p><strong>{new Intl.NumberFormat(language === "vi" ? "vi-VN" : "ko-KR").format(snapshot.totalActual)}<small> EA</small></strong><span>{t("kpi.totalActualHint")}</span></div></article>
+        <article><span aria-hidden="true" className="kpi-icon is-green">✓</span><div><p>{t("kpi.averageYield")}</p><strong>{metric(snapshot.weightedYield)}</strong><span>{t("kpi.averageYieldHint")}</span></div></article>
+        <article><span aria-hidden="true" className="kpi-icon is-violet">↗</span><div><p>{t("kpi.averageUtilization")}</p><strong>{metric(snapshot.weightedUtilization)}</strong><span>{t("kpi.averageUtilizationHint")}</span></div></article>
+        <article><span aria-hidden="true" className="kpi-icon is-orange">!</span><div><p>{t("kpi.attention")}</p><strong>{new Intl.NumberFormat(language === "vi" ? "vi-VN" : "ko-KR").format(snapshot.attentionCount)}<small> {t("unit.item")}</small></strong><span>{t("kpi.attentionHint")}</span></div></article>
+      </section>
+
+      <div className="dashboard-grid dashboard-grid-top">
+        <YieldMatrix rows={snapshot.yields} master={master} />
+        <UtilizationBars rows={snapshot.utilization} master={master} />
+      </div>
+      <div className="dashboard-grid dashboard-grid-bottom">
+        <section className="dashboard-card downtime-card" aria-label={t("downtime.summary")}>
+          <div className="dashboard-card-heading"><div><p className="dashboard-eyebrow">DOWNTIME</p><h2>{t("downtime.summary")}</h2></div></div>
+          {snapshot.downtime.length === 0
+            ? <p className="dashboard-empty">{t("downtime.empty")}</p>
+            : <ul>{snapshot.downtime.map((row) => <li key={row.reasonId}><span>{row.reasonName}</span><strong>{compactNumber(row.minutes)}{language === "vi" ? " " : ""}{t("unit.minute")}</strong></li>)}</ul>}
+        </section>
+        <EntryProgress rows={snapshot.entryProgress} master={master} />
+      </div>
+    </>}
+  </main>;
+
+  if (embedded) return content;
+
   return <div className="dashboard-shell">
     <aside className="dashboard-sidebar">
-      <a className="dashboard-brand" href="/"><span className="brand-mark">S</span><span><strong>SMD CONTROL</strong><small>생산 공정 관리</small></span></a>
+      <a className="dashboard-brand" href="/"><span className="brand-mark">S</span><span><strong>{t("app.name")}</strong><small>{t("app.subtitle")}</small></span></a>
       <nav aria-label="대시보드 메뉴" className="dashboard-nav">
-        <a className="is-active" href="/"><span>▦</span> 통합 대시보드</a>
-        <a href="/analysis"><span>⌁</span> 상세 분석</a>
-        <a href="/entry"><span>＋</span> 생산 실적 입력</a>
-        <a href="/upload"><span>⇧</span> 엑셀 업로드</a>
-        <a href="/admin"><span>⚙</span> 기준정보 관리</a>
+        <a className="is-active" href="/"><span>▦</span> {t("nav.dashboard")}</a>
+        <a href="/analysis"><span>⌁</span> {t("nav.analysis")}</a>
+        <a href="/entry"><span>＋</span> {t("nav.entry")}</a>
+        <a href="/upload"><span>⇧</span> {t("nav.upload")}</a>
+        <a href="/admin"><span>⚙</span> {t("nav.admin")}</a>
       </nav>
       <p className="dashboard-sidebar-note">LIVE SYNC<br /><span>Supabase 실시간 연결</span></p>
     </aside>
-    <main className="dashboard-main">
-      <header className="dashboard-topbar">
-        <div><p className="dashboard-eyebrow">SMD PROCESS CONTROL</p><h1>통합 생산 대시보드</h1><p>공정 현황을 실시간으로 확인합니다.</p></div>
-        <span className="dashboard-live"><i /> LIVE</span>
-      </header>
-
-      {master && <form className="dashboard-filters" aria-label="대시보드 필터" onSubmit={(event) => event.preventDefault()}>
-        <label>생산일<input type="date" aria-label="생산일" value={filters.productionDate} onChange={(event) => setFilter("productionDate", event.target.value)} /></label>
-        <label>조<select aria-label="조" value={filters.shiftId ?? ""} onChange={(event) => setFilter("shiftId", event.target.value || null)}><option value="">전체</option>{master.shifts.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        <label>모델<select aria-label="모델" value={filters.modelId ?? ""} onChange={(event) => setFilter("modelId", event.target.value || null)}><option value="">전체</option>{master.models.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code} · {item.name}</option>)}</select></label>
-        <label>라인<select aria-label="라인" value={filters.lineId ?? ""} onChange={(event) => setFilter("lineId", event.target.value || null)}><option value="">전체</option>{master.lines.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-        <label>공정<select aria-label="공정" value={filters.processCode ?? ""} onChange={(event) => setFilter("processCode", (event.target.value || null) as ProcessCode | null)}><option value="">전체</option>{master.processes.filter((item) => item.active).map((item) => <option key={item.id} value={item.code}>{item.name}</option>)}</select></label>
-      </form>}
-
-      {error && <p className="dashboard-error" role="alert">{error}</p>}
-      {loading && !snapshot && <p className="dashboard-loading" role="status">생산 현황을 불러오는 중입니다…</p>}
-      {snapshot && master && <>
-        <section className="dashboard-kpis" aria-label="핵심 지표">
-          <article><span className="kpi-icon is-blue">▤</span><div><p>금일 총 실적</p><strong>{compactNumber(snapshot.totalActual)}<small> EA</small></strong><span>선택 조건 누계</span></div></article>
-          <article><span className="kpi-icon is-green">✓</span><div><p>평균 공정 수율</p><strong>{metric(snapshot.weightedYield)}</strong><span>OK 수량 가중 평균</span></div></article>
-          <article><span className="kpi-icon is-violet">↗</span><div><p>평균 라인 가동률</p><strong>{metric(snapshot.weightedUtilization)}</strong><span>순가동시간 기준</span></div></article>
-          <article><span className="kpi-icon is-orange">!</span><div><p>확인 필요</p><strong>{compactNumber(snapshot.attentionCount)}<small> 건</small></strong><span>미입력·기준 누락</span></div></article>
-        </section>
-
-        <div className="dashboard-grid dashboard-grid-top">
-          <YieldMatrix rows={snapshot.yields} master={master} />
-          <UtilizationBars rows={snapshot.utilization} master={master} />
-        </div>
-        <div className="dashboard-grid dashboard-grid-bottom">
-          <section className="dashboard-card downtime-card" aria-label="비가동 요약">
-            <div className="dashboard-card-heading"><div><p className="dashboard-eyebrow">DOWNTIME</p><h2>비가동 요약</h2></div></div>
-            {snapshot.downtime.length === 0
-              ? <p className="dashboard-empty">등록된 비가동이 없습니다.</p>
-              : <ul>{snapshot.downtime.map((row) => <li key={row.reasonId}><span>{row.reasonName}</span><strong>{compactNumber(row.minutes)}분</strong></li>)}</ul>}
-          </section>
-          <EntryProgress rows={snapshot.entryProgress} master={master} />
-        </div>
-      </>}
-    </main>
+    {content}
   </div>;
 }

@@ -327,12 +327,16 @@
   color: #3e4b61;
 }
 
-.yield-matrix td span {
+.yield-matrix td > span {
   display: inline-block;
   min-width: 52px;
   padding: 6px 7px;
   border-radius: 7px;
   font-weight: 800;
+}
+
+.metric-symbol {
+  margin-right: 4px;
 }
 
 .metric-good { background: #e4f7ef; color: #16845f; }
@@ -612,10 +616,11 @@
     padding: 16px;
   }
   .dashboard-brand { margin: 0 0 15px; }
-  .dashboard-nav { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .dashboard-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dashboard-nav a { justify-content: center; padding: 10px 6px; font-size: 11px; }
   .dashboard-nav a span { display: none; }
   .dashboard-sidebar-note { display: none; }
+  .language-picker { grid-column: 1 / -1; margin: 8px 0 0; }
   .dashboard-main { margin-left: 0; padding: 24px 16px 40px; }
   .dashboard-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-filters label:first-child { grid-column: 1 / -1; }
