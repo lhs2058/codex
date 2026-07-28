@@ -7,6 +7,9 @@ node_modules/
 .pnpm-store/
 .runtime/
 .vercel/
+.worktrees/
+.superpowers/
+.tmp-smd-analysis/
 *.log
 *.xlsx
 .agents/
