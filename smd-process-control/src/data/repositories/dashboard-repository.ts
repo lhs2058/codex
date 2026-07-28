@@ -20,11 +20,12 @@ export interface DashboardRepository {
   subscribeDashboard(filters: DashboardFilters, onChange: () => void): () => void;
 }
 
-interface DashboardDependencies {
+export interface DashboardDependencies {
   master: Pick<MasterDataRepository, "listMasterData">;
   production: Pick<ProductionRepository, "listDashboardProduction">;
   quality: { listDashboardQuality(filters: DashboardQualityFilters): Promise<DashboardQualityRecord[]> };
   subscribe?: DashboardRepository["subscribeDashboard"];
+  now?: () => Date;
 }
 
 interface RealtimeChannel {
@@ -58,6 +59,7 @@ function utilizationFor(
   let productiveSeconds = 0;
   let netSeconds = 0;
   let missingStandardTime = false;
+  let invalidNetTime = false;
   for (const record of records) {
     const slot = master.timeSlots.find((candidate) => candidate.id === record.timeSlotId);
     const standardTime = findEffectiveStandardTime(
@@ -67,17 +69,25 @@ function utilizationFor(
         && candidate.lineId === record.lineId),
       productionDate,
     );
-    if (!slot || !standardTime) {
+    if (!standardTime) {
       missingStandardTime = true;
+      continue;
+    }
+    if (!slot) {
+      invalidNetTime = true;
       continue;
     }
     const plannedSeconds = slotDurationSeconds(slot.startsAt, slot.endsAt, slot.endDayOffset);
     const downtimeSeconds = record.downtime.reduce((total, row) => total + row.minutes * 60, 0);
-    if (plannedSeconds - downtimeSeconds <= 0) continue;
+    if (plannedSeconds - downtimeSeconds <= 0) {
+      invalidNetTime = true;
+      continue;
+    }
     productiveSeconds += record.actualQty * standardTime.secondsPerUnit;
     netSeconds += plannedSeconds - downtimeSeconds;
   }
-  if (netSeconds === 0) return notCalculable(missingStandardTime ? "missing-st" : "zero-net-time");
+  if (missingStandardTime) return notCalculable("missing-st");
+  if (invalidNetTime || netSeconds === 0) return notCalculable("zero-net-time");
   return calculateUtilization(productiveSeconds, 1, netSeconds, 0);
 }
 
@@ -108,23 +118,24 @@ function entryProgress(
   filters: DashboardFilters,
   records: DashboardProductionRecord[],
   master: MasterDataSnapshot,
+  now: Date,
 ): DashboardSnapshot["entryProgress"] {
   const shiftId = filters.shiftId ?? master.shifts.find((shift) => shift.active)?.id;
   const slots = master.timeSlots
     .filter((slot) => !shiftId || slot.shiftId === shiftId)
     .sort((left, right) => left.sequence - right.sequence)
     .slice(0, 5);
-  const populatedSequences = slots
-    .filter((slot) => records.some((record) => record.timeSlotId === slot.id))
-    .map((slot) => slot.sequence);
-  const latest = populatedSequences.length > 0 ? Math.max(...populatedSequences) : null;
+  const instant = (time: string, dayOffset: 0 | 1) => {
+    const normalized = time.length === 5 ? `${time}:00` : time;
+    return Date.parse(`${filters.productionDate}T${normalized}+07:00`) + dayOffset * 24 * 60 * 60 * 1000;
+  };
   return slots.map((slot) => ({
     timeSlotId: slot.id,
-    status: latest === null || slot.sequence > latest
-      ? "waiting"
-      : slot.sequence === latest
+    status: records.some((record) => record.timeSlotId === slot.id)
+      ? "complete"
+      : now.getTime() >= instant(slot.startsAt, 0) && now.getTime() < instant(slot.endsAt, slot.endDayOffset)
         ? "in-progress"
-        : "complete",
+        : "waiting",
   }));
 }
 
@@ -150,6 +161,7 @@ export function createDashboardRepository(dependencies?: Partial<DashboardDepend
   const master = dependencies?.master ?? createMasterDataRepository();
   const production = dependencies?.production ?? createProductionRepository();
   const quality = dependencies?.quality ?? createQualityRepository();
+  const now = dependencies?.now ?? (() => new Date());
   const subscribe = dependencies?.subscribe
     ?? ((filters: DashboardFilters, onChange: () => void) =>
       createDashboardRealtimeSubscription(getSupabaseClient() as unknown as DashboardRealtimeClient, filters, onChange));
@@ -202,7 +214,7 @@ export function createDashboardRepository(dependencies?: Partial<DashboardDepend
         yields,
         utilization,
         downtime,
-        entryProgress: entryProgress(filters, productionRecords, masterData),
+        entryProgress: entryProgress(filters, productionRecords, masterData, now()),
       };
     },
     subscribeDashboard: subscribe,

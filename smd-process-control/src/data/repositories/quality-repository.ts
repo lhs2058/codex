@@ -1,4 +1,5 @@
 import { getSupabaseClient } from "../supabase";
+import { chunkIds, readAllPages, type PaginatedQuery } from "./dashboard-pagination";
 
 export interface ExistingProductionRecord { id: string; productionDate: string; shiftId: string; timeSlotId: string; lineId: string; modelId: string; processId: string; inputQty: number; actualQty: number; okQty: number; ngQty: number; version: number; downtimeMinutes: number; }
 export interface DashboardQualityFilters {
@@ -17,7 +18,7 @@ export interface DashboardQualityRecord {
   inputQty: number;
   okQty: number;
 }
-type Query = PromiseLike<{ data: Record<string, unknown>[] | null; error: { message?: string } | null }> & {
+type Query = PaginatedQuery<Record<string, unknown>> & {
   select(columns: string): Query;
   eq(column: string, value: unknown): Query;
   is(column: string, value: null): Query;
@@ -37,13 +38,18 @@ export function createQualityRepository(client: QualityClient = getSupabaseClien
     },
     async listDashboardQuality(filters: DashboardQualityFilters): Promise<DashboardQualityRecord[]> {
       if (filters.productionRecordIds.length === 0) return [];
-      const result = await (client as DashboardQualityClient).from("quality_records")
-        .select("production_record_id,line_id,model_id,process_id,input_qty,ok_qty")
-        .eq("production_date", filters.productionDate)
-        .in("production_record_id", filters.productionRecordIds)
-        .is("deleted_at", null);
-      if (result.error) throw new Error(result.error.message ?? "dashboard_quality_lookup_failed");
-      return (result.data ?? []).map((row) => ({
+      const rows: Record<string, unknown>[] = [];
+      for (const productionIdChunk of chunkIds(filters.productionRecordIds)) {
+        rows.push(...await readAllPages(
+          () => (client as DashboardQualityClient).from("quality_records")
+            .select("id,production_record_id,line_id,model_id,process_id,input_qty,ok_qty")
+            .eq("production_date", filters.productionDate)
+            .in("production_record_id", productionIdChunk)
+            .is("deleted_at", null),
+          "dashboard_quality_lookup_failed",
+        ));
+      }
+      return rows.map((row) => ({
         productionRecordId: String(row.production_record_id),
         lineId: String(row.line_id),
         modelId: String(row.model_id),

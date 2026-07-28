@@ -2,6 +2,8 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { DashboardFilters, DashboardSnapshot, MasterDataSnapshot } from "../../src/domain/types";
 import { createDashboardRepository } from "../../src/data/repositories/dashboard-repository";
+import { createProductionRepository, type DashboardProductionRecord } from "../../src/data/repositories/production-repository";
+import { createQualityRepository } from "../../src/data/repositories/quality-repository";
 import { DashboardPage } from "../../src/features/dashboard/DashboardPage";
 
 const filters: DashboardFilters = {
@@ -41,6 +43,58 @@ const master: MasterDataSnapshot = {
     effectiveTo: null,
   }],
 };
+
+function productionRecord(overrides: Partial<DashboardProductionRecord> = {}): DashboardProductionRecord {
+  return {
+    id: "production-1",
+    productionDate: "2026-07-28",
+    shiftId: "shift-day",
+    timeSlotId: "slot-a",
+    lineId: "line-1",
+    modelId: "model-a",
+    processId: "process-aoi",
+    inputQty: 10,
+    actualQty: 9,
+    downtime: [],
+    ...overrides,
+  };
+}
+
+function cappedClient(tables: Record<string, Array<Record<string, unknown>>>) {
+  return {
+    rpc: vi.fn(),
+    from: vi.fn((table: string) => {
+      const equals = new Map<string, unknown>();
+      const included = new Map<string, unknown[]>();
+      let start = 0;
+      let end = 999;
+      let orderColumn: string | null = null;
+      let oversizedIn = false;
+      const query: any = {
+        select: () => query,
+        eq: (column: string, value: unknown) => { equals.set(column, value); return query; },
+        is: (column: string, value: unknown) => { equals.set(column, value); return query; },
+        in: (column: string, values: unknown[]) => {
+          included.set(column, values);
+          if (values.length > 100) oversizedIn = true;
+          return query;
+        },
+        order: (column: string) => { orderColumn = column; return query; },
+        range: (from: number, to: number) => { start = from; end = to; return query; },
+        then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => {
+          if (oversizedIn) return Promise.resolve({ data: null, error: { message: "request_uri_too_long" } }).then(resolve, reject);
+          let rows = [...(tables[table] ?? [])]
+            .filter((row) => [...equals].every(([column, value]) => (row[column] ?? null) === value))
+            .filter((row) => [...included].every(([column, values]) => values.includes(row[column])));
+          if (orderColumn) rows.sort((left, right) => String(left[orderColumn!]).localeCompare(String(right[orderColumn!])));
+          rows = rows.slice(start, Math.min(end + 1, start + 1000));
+          return Promise.resolve({ data: rows, error: null }).then(resolve, reject);
+        },
+      };
+      return query;
+    }),
+  };
+}
 
 describe("dashboard repository", () => {
   it("propagates every filter and calculates yield from summed quantities", async () => {
@@ -118,6 +172,131 @@ describe("dashboard repository", () => {
     expect(snapshot.yields).toHaveLength(1);
     expect(snapshot.yields[0].result.status).toBe("not-calculable");
     expect(snapshot.utilization[0].result.status).toBe("not-calculable");
+  });
+
+  it("does not publish partial utilization when one selected record lacks standard time", async () => {
+    const repository = createDashboardRepository({
+      master: { listMasterData: vi.fn().mockResolvedValue(master) },
+      production: {
+        listDashboardProduction: vi.fn().mockResolvedValue([
+          productionRecord(),
+          productionRecord({ id: "production-2", modelId: "model-without-st", timeSlotId: "slot-b" }),
+        ]),
+      },
+      quality: { listDashboardQuality: vi.fn().mockResolvedValue([]) },
+    });
+
+    const snapshot = await repository.loadDashboard({ ...filters, modelId: null });
+
+    expect(snapshot.weightedUtilization).toEqual({ status: "not-calculable", reason: "missing-st" });
+    expect(snapshot.utilization).toEqual([{ lineId: "line-1", result: { status: "not-calculable", reason: "missing-st" } }]);
+    expect(snapshot.attentionCount).toBe(1);
+  });
+
+  it("does not publish partial utilization when one selected record has zero net time", async () => {
+    const repository = createDashboardRepository({
+      master: { listMasterData: vi.fn().mockResolvedValue(master) },
+      production: {
+        listDashboardProduction: vi.fn().mockResolvedValue([
+          productionRecord(),
+          productionRecord({
+            id: "production-2",
+            timeSlotId: "slot-b",
+            downtime: [{ reasonId: "reason-breakdown", minutes: 60 }],
+          }),
+        ]),
+      },
+      quality: { listDashboardQuality: vi.fn().mockResolvedValue([]) },
+    });
+
+    const snapshot = await repository.loadDashboard(filters);
+
+    expect(snapshot.weightedUtilization).toEqual({ status: "not-calculable", reason: "zero-net-time" });
+    expect(snapshot.utilization).toEqual([{ lineId: "line-1", result: { status: "not-calculable", reason: "zero-net-time" } }]);
+    expect(snapshot.attentionCount).toBe(1);
+  });
+
+  it("keeps C complete without inventing completion for missing A and B entries", async () => {
+    const repository = createDashboardRepository({
+      master: { listMasterData: vi.fn().mockResolvedValue(master) },
+      production: { listDashboardProduction: vi.fn().mockResolvedValue([productionRecord({ timeSlotId: "slot-c" })]) },
+      quality: { listDashboardQuality: vi.fn().mockResolvedValue([]) },
+      now: () => new Date("2026-07-27T23:30:00.000Z"),
+    });
+
+    const snapshot = await repository.loadDashboard(filters);
+
+    expect(snapshot.entryProgress.map((row) => row.status)).toEqual(["waiting", "waiting", "complete", "waiting", "waiting"]);
+  });
+
+  it("marks only the unentered current slot in progress across an out-of-order gap", async () => {
+    const repository = createDashboardRepository({
+      master: { listMasterData: vi.fn().mockResolvedValue(master) },
+      production: {
+        listDashboardProduction: vi.fn().mockResolvedValue([
+          productionRecord({ id: "production-a", timeSlotId: "slot-a" }),
+          productionRecord({ id: "production-c", timeSlotId: "slot-c" }),
+        ]),
+      },
+      quality: { listDashboardQuality: vi.fn().mockResolvedValue([]) },
+      now: () => new Date("2026-07-28T02:30:00.000Z"),
+    });
+
+    const snapshot = await repository.loadDashboard(filters);
+
+    expect(snapshot.entryProgress.map((row) => row.status)).toEqual(["complete", "in-progress", "complete", "waiting", "waiting"]);
+  });
+});
+
+describe("dashboard repository pagination", () => {
+  it("includes production, quality, and downtime rows beyond the server's first 1,000-row page", async () => {
+    const productionRows = Array.from({ length: 1001 }, (_, index) => ({
+      id: `production-${String(index).padStart(4, "0")}`,
+      production_date: "2026-07-28",
+      shift_id: "shift-day",
+      time_slot_id: "slot-a",
+      line_id: "line-1",
+      model_id: "model-a",
+      process_id: "process-aoi",
+      input_qty: 1,
+      actual_qty: 1,
+      deleted_at: null,
+    }));
+    const qualityRows = productionRows.map((row, index) => ({
+      id: `quality-${String(index).padStart(4, "0")}`,
+      production_record_id: row.id,
+      production_date: "2026-07-28",
+      line_id: "line-1",
+      model_id: "model-a",
+      process_id: "process-aoi",
+      input_qty: index === 1000 ? 1000 : 1,
+      ok_qty: index === 1000 ? 0 : 1,
+      deleted_at: null,
+    }));
+    const downtimeRows = Array.from({ length: 1001 }, (_, index) => ({
+      id: `downtime-${String(index).padStart(4, "0")}`,
+      production_record_id: "production-0000",
+      reason_id: "reason-breakdown",
+      minutes: index === 1000 ? 7 : 0,
+      deleted_at: null,
+    }));
+    const client = cappedClient({
+      production_records: productionRows,
+      quality_records: qualityRows,
+      downtime_records: downtimeRows,
+    });
+    const repository = createDashboardRepository({
+      master: { listMasterData: vi.fn().mockResolvedValue(master) },
+      production: createProductionRepository(client as never),
+      quality: createQualityRepository(client as never),
+    });
+
+    const snapshot = await repository.loadDashboard(filters);
+
+    expect(snapshot.totalActual).toBe(1001);
+    expect(snapshot.weightedYield).toEqual({ status: "ok", value: 50 });
+    expect(snapshot.yields[0].result).toEqual({ status: "ok", value: 50 });
+    expect(snapshot.downtime).toEqual([{ reasonId: "reason-breakdown", reasonName: "설비 고장", minutes: 7 }]);
   });
 });
 

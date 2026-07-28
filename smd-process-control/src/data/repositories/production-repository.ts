@@ -1,5 +1,6 @@
 import type { ProductionEntryDraft } from "../../domain/types";
 import { getSupabaseClient } from "../supabase";
+import { chunkIds, readAllPages, type PaginatedQuery } from "./dashboard-pagination";
 
 export interface DashboardProductionFilters {
   productionDate: string;
@@ -25,8 +26,7 @@ export interface ProductionRepository {
   listDashboardProduction(filters: DashboardProductionFilters): Promise<DashboardProductionRecord[]>;
 }
 export interface ProductionClient { rpc(name: "save_production_record", params: { payload: Record<string, unknown>; expected_version: number }): PromiseLike<{ data: string | null; error: { code?: string; message?: string } | null }>; }
-type DashboardResult = { data: Record<string, unknown>[] | null; error: { message?: string } | null };
-type DashboardQuery = PromiseLike<DashboardResult> & {
+type DashboardQuery = PaginatedQuery<Record<string, unknown>> & {
   select(columns: string): DashboardQuery;
   eq(column: string, value: unknown): DashboardQuery;
   is(column: string, value: null): DashboardQuery;
@@ -56,21 +56,23 @@ export function createProductionRepository(client: ProductionClient = getSupabas
     },
     async listDashboardProduction(filters) {
       const dashboardClient = client as DashboardProductionClient;
-      const productionResult = await applyDashboardFilters(
-        dashboardClient.from("production_records").select("id,production_date,shift_id,time_slot_id,line_id,model_id,process_id,input_qty,actual_qty"),
-        filters,
+      const rows = await readAllPages(
+        () => applyDashboardFilters(
+          dashboardClient.from("production_records").select("id,production_date,shift_id,time_slot_id,line_id,model_id,process_id,input_qty,actual_qty"),
+          filters,
+        ),
+        "dashboard_production_lookup_failed",
       );
-      if (productionResult.error) throw new Error(productionResult.error.message ?? "dashboard_production_lookup_failed");
-      const rows = productionResult.data ?? [];
       const productionIds = rows.map((row) => String(row.id));
       let downtimeRows: Record<string, unknown>[] = [];
-      if (productionIds.length > 0) {
-        const downtimeResult = await dashboardClient.from("downtime_records")
-          .select("production_record_id,reason_id,minutes")
-          .in("production_record_id", productionIds)
-          .is("deleted_at", null);
-        if (downtimeResult.error) throw new Error(downtimeResult.error.message ?? "dashboard_downtime_lookup_failed");
-        downtimeRows = downtimeResult.data ?? [];
+      for (const productionIdChunk of chunkIds(productionIds)) {
+        downtimeRows.push(...await readAllPages(
+          () => dashboardClient.from("downtime_records")
+            .select("id,production_record_id,reason_id,minutes")
+            .in("production_record_id", productionIdChunk)
+            .is("deleted_at", null),
+          "dashboard_downtime_lookup_failed",
+        ));
       }
       return rows.map((row) => ({
         id: String(row.id),
