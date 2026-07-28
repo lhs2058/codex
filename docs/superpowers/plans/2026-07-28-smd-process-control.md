@@ -209,6 +209,11 @@ export interface WorkbookSheet {
   data: unknown[][];
 }
 
+export interface WorkbookDetection {
+  kind: WorkbookKind;
+  diagnostics: Array<{ code: "ambiguous-workbook"; message: string }>;
+}
+
 export interface NormalizedImportRow {
   sourceSheet: string;
   sourceRow: number;
@@ -459,7 +464,7 @@ git commit -m "feat(smd): add yield and utilization domain engine"
 - [ ] **Step 1: 실패하는 pgTAP 스키마 테스트 작성**
 
 ```sql
-select plan(8);
+select plan(7);
 select has_table('public', 'production_records');
 select has_table('public', 'standard_times');
 select col_type_is('public', 'standard_times', 'seconds_per_unit', 'numeric');
@@ -713,14 +718,32 @@ git commit -m "feat(smd): add master data and standard time administration"
 
 **Interfaces:**
 - Produces: `productionEntrySchema: z.ZodType<ProductionEntryDraft>`
+- Produces: `validateDowntime(downtime: DowntimeDraft[], plannedSeconds: number): { ok: true } | { ok: false; code: "downtime-exceeds-planned-time" }`
 - Produces: `previewProductionMetrics(input: ProductionEntryDraft, masterData: MasterDataSnapshot): ProductionPreview`
 - Produces: `saveProductionRecord(draft: ProductionEntryDraft, expectedVersion: number): Promise<string>`
 
 - [ ] **Step 1: 입력 검증 실패 테스트 작성**
 
 ```ts
-expect(productionEntrySchema.safeParse({ inputQty: 10, okQty: 11 }).success).toBe(false);
-expect(productionEntrySchema.safeParse({ plannedSeconds: 3600, downtimeSeconds: 3601 }).success).toBe(false);
+const validDraft: ProductionEntryDraft = {
+  productionDate: "2026-07-28",
+  shiftId: "shift-day",
+  timeSlotId: "slot-a",
+  lineId: "line-1",
+  modelId: "model-a",
+  processId: "process-aoi",
+  inputQty: 10,
+  actualQty: 9,
+  okQty: 9,
+  ngQty: 1,
+  note: "",
+  downtime: [],
+};
+
+expect(productionEntrySchema.safeParse({ ...validDraft, okQty: 11 }).success).toBe(false);
+expect(
+  validateDowntime([{ reasonId: "breakdown", minutes: 61, note: "" }], 3600),
+).toEqual({ ok: false, code: "downtime-exceeds-planned-time" });
 ```
 
 - [ ] **Step 2: 폼 흐름 실패 테스트 작성**
@@ -766,7 +789,7 @@ git commit -m "feat(smd): add validated time-slot production entry"
 **Interfaces:**
 - Consumes: `NormalizedImportRow`, `WorkbookSheet`, `WorkbookKind`
 - Produces: `normalizeProcessName(value: unknown): ProcessCode`
-- Produces: `detectWorkbook(sheets: WorkbookSheet[]): WorkbookKind`
+- Produces: `detectWorkbook(sheets: WorkbookSheet[]): WorkbookDetection`
 - WorkbookKind: `"aoi" | "spi" | "ict" | "xray" | "production" | "standard" | "unknown"`
 
 - [ ] **Step 1: 공정명·날짜·라인 정규화 실패 테스트 작성**
