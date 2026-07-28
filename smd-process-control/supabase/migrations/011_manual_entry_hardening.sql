@@ -16,7 +16,7 @@ drop policy if exists downtime_records_admin_delete on public.downtime_records;
 create or replace function public.save_production_record(payload jsonb, expected_version bigint)
 returns uuid language plpgsql security definer set search_path = '' as $$
 declare actor_id uuid:=auth.uid(); app_role text:=public.current_app_role(); target public.production_records%rowtype; target_id uuid; requested_id uuid;
- day_value date; shift_value uuid; slot_value uuid; line_value uuid; model_value uuid; process_value uuid; input_value integer; actual_value integer; ok_value integer; ng_value integer; note_value text; item jsonb; reason_value uuid; minute_value numeric; start_value time; end_value time; total_minutes integer:=0; slot_minutes integer; conflict_constraint text;
+ day_value date; shift_value uuid; slot_value uuid; line_value uuid; model_value uuid; process_value uuid; input_value integer; actual_value integer; ok_value integer; ng_value integer; note_value text; item jsonb; reason_value uuid; minute_value numeric; start_value time; end_value time; duration_seconds numeric; total_minutes integer:=0; slot_minutes integer; conflict_constraint text;
 begin
  if expected_version is null then raise exception using errcode='40001',message='record_version_conflict'; end if;
  if actor_id is null or app_role not in ('operator','admin') then raise exception using errcode='42501',message='insufficient_privilege'; end if;
@@ -29,7 +29,13 @@ begin
  for item in select value from jsonb_array_elements(coalesce(payload->'downtime','[]'::jsonb)) loop
   begin reason_value:=(item->>'reason_id')::uuid; minute_value:=nullif(item->>'minutes','')::numeric; start_value:=nullif(item->>'start_time','')::time; end_value:=nullif(item->>'end_time','')::time; exception when others then raise exception using errcode='22023',message='invalid_downtime_payload'; end;
   if reason_value is null or length(coalesce(item->>'note',''))>1000 or ((minute_value is not null)::integer+((start_value is not null and end_value is not null)::integer))<>1 or minute_value<0 or (minute_value is not null and trunc(minute_value)<>minute_value) then raise exception using errcode='22023',message='invalid_downtime_payload'; end if;
-  total_minutes:=total_minutes+coalesce(minute_value::integer,(extract(epoch from (end_value-start_value+case when end_value<start_value then interval '1 day' else interval '0 day' end))/60)::integer);
+  if minute_value is not null then total_minutes:=total_minutes+minute_value::integer;
+  else
+   if start_value::time(0)<>start_value or end_value::time(0)<>end_value then raise exception using errcode='22023',message='invalid_downtime_duration'; end if;
+   duration_seconds:=extract(epoch from (end_value-start_value+case when end_value<start_value then interval '1 day' else interval '0 day' end));
+   if duration_seconds<0 or mod(duration_seconds,60)<>0 then raise exception using errcode='22023',message='invalid_downtime_duration'; end if;
+   total_minutes:=total_minutes+(duration_seconds/60)::integer;
+  end if;
  end loop;
  if total_minutes>slot_minutes then raise exception using errcode='22023',message='downtime_exceeds_planned_time'; end if;
  if requested_id is null then

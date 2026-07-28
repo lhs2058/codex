@@ -1,6 +1,6 @@
 begin;
 
-select plan(7);
+select plan(8);
 select has_table('public', 'production_records');
 select has_table('public', 'standard_times');
 select col_type_is('public', 'standard_times', 'seconds_per_unit', 'numeric');
@@ -11,6 +11,7 @@ select results_eq(
   $$values ('AOI'), ('ICT'), ('ROUTER'), ('SPI'), ('XRAY')$$
 );
 select pass('core schema inspected');
+select like((select prosrc from pg_proc where oid = 'public.save_production_record(jsonb,bigint)'::regprocedure), '%invalid_downtime_duration%', 'manual save rejects second-level downtime ranges');
 select finish();
 
 rollback;
