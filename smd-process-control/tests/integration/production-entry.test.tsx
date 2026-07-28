@@ -14,10 +14,10 @@ describe("ProductionEntryPage", () => {
     await waitFor(() => expect(saveProductionRecord).toHaveBeenCalledTimes(1)); await act(async () => { resolve("r1"); });
   });
   it("preserves draft and shows Korean conflict message and comparison", async () => {
-    render(<ProductionEntryPage masterRepository={{ listMasterData: vi.fn().mockResolvedValue(master) }} productionRepository={{ saveProductionRecord: vi.fn().mockRejectedValue({ code: "40001" }) }} qualityRepository={{ findExisting: vi.fn().mockResolvedValue({ id: "old", inputQty: 8, actualQty: 7, okQty: 7, ngQty: 1, version: 2 }) }} />);
+    render(<ProductionEntryPage masterRepository={{ listMasterData: vi.fn().mockResolvedValue(master) }} productionRepository={{ saveProductionRecord: vi.fn().mockRejectedValue({ code: "40001" }) }} qualityRepository={{ findExisting: vi.fn().mockResolvedValue({ id: "old", productionDate: "2026-07-28", shiftId: "s", timeSlotId: "t", lineId: "l", modelId: "m", processId: "p", inputQty: 8, actualQty: 7, okQty: 7, ngQty: 1, version: 2, downtimeMinutes: 5 }) }} />);
     await screen.findByLabelText("Shift");
     for (const [label, value] of [["Production date", "2026-07-28"], ["Shift", "s"], ["Time slot", "t"], ["Line", "l"], ["Model", "m"], ["Process", "p"], ["Input", "10"], ["Actual", "9"], ["OK", "9"], ["NG", "1"]] as const) fireEvent.change(screen.getByLabelText(label), { target: { value } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("다른 사용자가 수정했습니다")).toBeInTheDocument(); expect(screen.getByText("Existing input: 8")).toBeInTheDocument(); expect(screen.getByLabelText("Input")).toHaveValue(10);
+    expect(await screen.findByText("다른 사용자가 수정했습니다")).toBeInTheDocument(); expect(screen.getByRole("heading", { name: "Draft" })).toBeInTheDocument(); expect(screen.getByText("Current record")).toBeInTheDocument(); expect(screen.getAllByText("D — Day")).toHaveLength(2); expect(screen.getByText("5")).toBeInTheDocument(); expect(screen.getByLabelText("Input")).toHaveValue(10);
   });
 });
