@@ -1,39 +1,4 @@
-import type { ImportDiagnostic, ImportParseResult, WorkbookSheet } from "../contracts";
-import { normalizeLineName, normalizeProcessName, normalizeProductionDate, normalizeQuantity } from "../normalize";
-
-const slotCodes = ["A", "B", "C", "D", "E"] as const;
-const fold = (value: unknown) => typeof value === "string" ? value.toLowerCase().replace(/\s+/g, " ").trim() : "";
-const cell = (row: unknown[], index: number) => index >= 0 ? row[index] : undefined;
-function normalizeProductionLine(value: unknown): string {
-  const text = typeof value === "string" ? value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d") : "";
-  const router = text.match(/^router\s+may\s+(\d+)$/i);
-  return router ? `ROUTER-${router[1]}` : normalizeLineName(value);
-}
-
-export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
-  const rows: ImportParseResult["rows"] = []; const diagnostics: ImportDiagnostic[] = [];
-  for (const sheet of sheets.filter((candidate) => /^\d{2}\.\d{2}$/.test(candidate.sheet)).sort((a, b) => a.sheet.localeCompare(b.sheet))) {
-    const headerIndex = sheet.data.slice(0, 30).findIndex((row) => row.some((value) => fold(value) === "time a actual"));
-    if (headerIndex < 0) continue;
-    const header = sheet.data[headerIndex]!.map(fold);
-    const indexOf = (name: string) => header.indexOf(name);
-    const date = indexOf("date"), shift = indexOf("shift"), line = indexOf("line"), model = indexOf("model"), process = indexOf("process");
-    for (let dataIndex = headerIndex + 1; dataIndex < Math.min(sheet.data.length, headerIndex + 51); dataIndex++) {
-      const source = sheet.data[dataIndex] ?? []; if (!source.some((value) => value !== null && value !== "")) continue;
-      const sourceRow = dataIndex + 1;
-      if (!cell(source, model) || !cell(source, line) || /^total$/i.test(String(cell(source, line)))) { diagnostics.push({ sourceSheet: sheet.sheet, sourceRow, code: "missing-required-value", message: "A production row requires a non-total model and line.", field: !cell(source, model) ? "modelCode" : "lineCode" }); continue; }
-      try {
-        const productionDate = normalizeProductionDate(cell(source, date), 2026); const lineCode = normalizeProductionLine(cell(source, line)); const modelCode = String(cell(source, model)).trim(); const processCode = normalizeProcessName(cell(source, process));
-        for (const slotCode of slotCodes) {
-          const actualIndex = indexOf(`time ${slotCode.toLowerCase()} actual`); const downtimeIndex = indexOf(`time ${slotCode.toLowerCase()} downtime`); const noteIndex = indexOf(`time ${slotCode.toLowerCase()} note`);
-          const actualValue = cell(source, actualIndex); if (actualValue === null || actualValue === undefined || actualValue === "") continue;
-          const actualQty = normalizeQuantity(actualValue, "actualQty"); const downtimeValue = cell(source, downtimeIndex);
-          rows.push({ sourceSheet: sheet.sheet, sourceRow, productionDate, shiftCode: typeof cell(source, shift) === "string" && String(cell(source, shift)).trim() ? String(cell(source, shift)).trim() : "DAY", timeSlotCode: slotCode, lineCode, modelCode, processCode, inputQty: 0, actualQty, okQty: 0, ngQty: 0, downtimeMinutes: downtimeValue === null || downtimeValue === undefined || downtimeValue === "" ? 0 : normalizeQuantity(downtimeValue, "downtimeMinutes"), downtimeReasonCode: null, note: typeof cell(source, noteIndex) === "string" ? String(cell(source, noteIndex)).trim() : "" });
-        }
-      } catch (error) {
-        diagnostics.push({ sourceSheet: sheet.sheet, sourceRow, code: "invalid-count", message: error instanceof Error ? error.message : "Invalid production row", field: "row" });
-      }
-    }
-  }
-  return { kind: "production", rows, diagnostics };
-}
+import type { ImportParseResult, WorkbookSheet } from "../contracts";
+import { normalizeLineName, normalizeProductionDate, normalizeQuantity } from "../normalize";
+const slots=["A","B","C","D","E"] as const;
+export function parseProductionWorkbook(sheets:WorkbookSheet[]):ImportParseResult{const rows:ImportParseResult["rows"]=[],diagnostics:ImportParseResult["diagnostics"]=[];for(const s of sheets.filter(x=>/^\d{2}\.\d{2}$/.test(x.sheet))){for(let i=6;i<s.data.length;i++){const r=s.data[i]??[],line=r[4],model=r[5];if(!line||!model||/total/i.test(String(line)))continue;const lineText=String(line);let process:"AOI"|"ROUTER"|"XRAY"|"ICT"="AOI";if(/xray/i.test(lineText))process="XRAY";else if(/ict/i.test(lineText))process="ICT";else if(/router/i.test(lineText))process="ROUTER";for(let j=0;j<5;j++){const actual=r[14+j*5],down=r[16+j*5],note=r[17+j*5];if(actual==null)continue;const lineCode=process==="ICT"?"ICT-1":/router may 2/i.test(lineText.normalize("NFD").replace(/[\u0300-\u036f]/g,""))?"ROUTER-2":normalizeLineName(line);rows.push({sourceSheet:s.sheet,sourceRow:i+1,productionDate:`2026-07-${s.sheet.slice(0,2)}`,shiftCode:String(r[3]??"DAY"),timeSlotCode:slots[j],lineCode,modelCode:String(model),processCode:process,inputQty:0,actualQty:normalizeQuantity(actual,"actualQty"),okQty:0,ngQty:0,downtimeMinutes:down==null?0:normalizeQuantity(down,"downtimeMinutes"),downtimeReasonCode:null,note:typeof note==="string"?note:""});}}}return {kind:"production",rows,diagnostics};}
