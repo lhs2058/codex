@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { calculateUtilization, calculateYield } from "./calculations";
 import { slotDurationSeconds } from "./time";
-import type { DowntimeDraft, MasterDataSnapshot, ProductionEntryDraft, ProductionPreview } from "./types";
+import { DomainValidationError, type DowntimeDraft, type MasterDataSnapshot, type ProductionEntryDraft, type ProductionPreview } from "./types";
 import { findEffectiveStandardTime } from "../data/repositories/master-data-repository";
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
@@ -26,7 +26,7 @@ export const productionEntrySchema: z.ZodType<ProductionEntryDraft> = z.object({
   if (value.okQty + value.ngQty > value.inputQty) ctx.addIssue({ code: "custom", path: ["ngQty"], message: "quality_exceeds_input" });
 });
 
-function downtimeSeconds(row: DowntimeDraft): number | null {
+function computeDowntimeSeconds(row: DowntimeDraft): number | null {
   const hasMinutes = row.minutes !== undefined;
   const hasStart = row.startTime !== undefined;
   const hasEnd = row.endTime !== undefined;
@@ -38,23 +38,24 @@ function downtimeSeconds(row: DowntimeDraft): number | null {
   return end >= start ? end - start : end + 86400 - start;
 }
 export function downtimeDurationMinutes(row: DowntimeDraft): number | null {
-  const seconds = downtimeSeconds(row);
+  const seconds = computeDowntimeSeconds(row);
   return seconds !== null && seconds % 60 === 0 ? seconds / 60 : null;
 }
 
 export function validateDowntime(rows: DowntimeDraft[], plannedSeconds: number): { ok: true } | { ok: false; code: "downtime-exceeds-planned-time" } {
   if (!Number.isFinite(plannedSeconds) || plannedSeconds < 0) return { ok: false, code: "downtime-exceeds-planned-time" };
   let total = 0;
-  for (const row of rows) { const parsed = downtime.safeParse(row); const seconds = downtimeSeconds(row); if (!parsed.success || seconds === null) return { ok: false, code: "downtime-exceeds-planned-time" }; total += seconds; }
+  for (const row of rows) { const parsed = downtime.safeParse(row); const seconds = computeDowntimeSeconds(row); if (!parsed.success || seconds === null) return { ok: false, code: "downtime-exceeds-planned-time" }; total += seconds; }
   return total <= plannedSeconds ? { ok: true } : { ok: false, code: "downtime-exceeds-planned-time" };
 }
 
 export function previewProductionMetrics(input: ProductionEntryDraft, masterData: MasterDataSnapshot): ProductionPreview {
+  if (!productionEntrySchema.safeParse(input).success || input.downtime.some((row) => computeDowntimeSeconds(row) === null)) throw new DomainValidationError("invalid_downtime");
   const slot = masterData.timeSlots.find((candidate) => candidate.id === input.timeSlotId && candidate.shiftId === input.shiftId) ?? null;
   const plannedSeconds = slot ? slotDurationSeconds(slot.startsAt, slot.endsAt, slot.endDayOffset) : null;
   const selected = masterData.standardTimes.filter((st) => st.modelId === input.modelId && st.processId === input.processId && st.lineId === input.lineId);
   const standardTime = findEffectiveStandardTime(selected, input.productionDate);
-  const downtimeSeconds = input.downtime.reduce((total, row) => total + (downtimeSecondsForPreview(row) ?? 0), 0);
+  const downtimeSeconds = input.downtime.reduce((total, row) => total + downtimeSecondsForPreview(row)!, 0);
   return { standardTime, plannedSeconds, downtimeSeconds, yieldResult: calculateYield(input.inputQty, input.okQty), utilizationResult: plannedSeconds === null ? { status: "not-calculable", reason: "missing-st" } : calculateUtilization(input.actualQty, standardTime?.secondsPerUnit ?? null, plannedSeconds, downtimeSeconds) };
 }
-function downtimeSecondsForPreview(row: DowntimeDraft) { return downtimeSeconds(row); }
+function downtimeSecondsForPreview(row: DowntimeDraft) { return computeDowntimeSeconds(row); }

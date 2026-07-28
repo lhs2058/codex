@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { downtimeDurationMinutes, previewProductionMetrics, productionEntrySchema, validateDowntime } from "../../src/domain/validation";
-import type { MasterDataSnapshot, ProductionEntryDraft } from "../../src/domain/types";
+import { DomainValidationError, type MasterDataSnapshot, type ProductionEntryDraft } from "../../src/domain/types";
 
 const validDraft: ProductionEntryDraft = { productionDate: "2026-07-28", shiftId: "shift-day", timeSlotId: "slot-a", lineId: "line-1", modelId: "model-a", processId: "process-aoi", inputQty: 10, actualQty: 9, okQty: 9, ngQty: 1, note: "", downtime: [] };
 const master: MasterDataSnapshot = { models: [], processes: [], lines: [], shifts: [], downtimeReasons: [], timeSlots: [{ id: "slot-a", shiftId: "shift-day", code: "A", startsAt: "08:00", endsAt: "09:00", endDayOffset: 0, sequence: 1 }], standardTimes: [{ id: "st", modelId: "model-a", processId: "process-aoi", lineId: "line-1", secondsPerUnit: 10, effectiveFrom: "2026-01-01", effectiveTo: null }] };
@@ -25,6 +25,11 @@ describe("validateDowntime", () => {
   it("rejects fractional manual minutes", () => expect(productionEntrySchema.safeParse({ ...validDraft, downtime: [{ reasonId: "breakdown", minutes: 1.5, note: "" }] }).success).toBe(false));
   it("shares overnight minute duration for range and manual rows", () => expect([downtimeDurationMinutes({ reasonId: "a", startTime: "23:30", endTime: "00:15", note: "" }), downtimeDurationMinutes({ reasonId: "b", minutes: 5, note: "" })]).toEqual([45, 5]));
   it("treats mixed, incomplete, fractional, and negative downtime modes as invalid", () => expect([downtimeDurationMinutes({ reasonId: "a", minutes: 1, startTime: "08:00", endTime: "08:01", note: "" }), downtimeDurationMinutes({ reasonId: "a", startTime: "08:00", note: "" }), downtimeDurationMinutes({ reasonId: "a", minutes: 1.5, note: "" }), downtimeDurationMinutes({ reasonId: "a", minutes: -1, note: "" })]).toEqual([null, null, null, null]));
+  it("rejects non-finite minutes and does not preview invalid downtime", () => {
+    for (const minutes of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) expect(downtimeDurationMinutes({ reasonId: "a", minutes, note: "" })).toBeNull();
+    expect(() => previewProductionMetrics({ ...validDraft, downtime: [{ reasonId: "a", minutes: Number.NaN, note: "" }] }, master)).toThrow(new DomainValidationError("invalid_downtime"));
+    expect(() => previewProductionMetrics({ ...validDraft, downtime: [{ reasonId: "a", minutes: 1, startTime: "08:00", endTime: "08:01", note: "" }] }, master)).toThrow("invalid_downtime");
+  });
 });
 
 describe("previewProductionMetrics", () => {

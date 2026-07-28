@@ -7,8 +7,9 @@ import { DowntimeEditor } from "./DowntimeEditor";
 const blank: ProductionEntryDraft = { productionDate: "", shiftId: "", timeSlotId: "", lineId: "", modelId: "", processId: "", inputQty: 0, actualQty: 0, okQty: 0, ngQty: 0, note: "", downtime: [] };
 export function ProductionEntryForm({ masterData, repository, onConflict }: { masterData: MasterDataSnapshot; repository: ProductionRepository; onConflict(draft: ProductionEntryDraft): Promise<void> }) {
   const [draft, setDraft] = useState(blank); const [saving, setSaving] = useState(false); const [message, setMessage] = useState(""); const submitting = useRef(false);
-  const preview = useMemo(() => draft.productionDate ? previewProductionMetrics(draft, masterData) : null, [draft, masterData]);
-  const valid = productionEntrySchema.safeParse(draft).success && preview?.plannedSeconds !== null && validateDowntime(draft.downtime, preview?.plannedSeconds ?? 0).ok;
+  const parsed = productionEntrySchema.safeParse(draft);
+  const preview = useMemo(() => parsed.success ? previewProductionMetrics(draft, masterData) : null, [draft, masterData, parsed.success]);
+  const valid = parsed.success && preview?.plannedSeconds !== null && validateDowntime(draft.downtime, preview?.plannedSeconds ?? 0).ok;
   const set = <K extends keyof ProductionEntryDraft>(key: K, value: ProductionEntryDraft[K]) => setDraft((old) => ({ ...old, [key]: value }));
   const submit = async () => { if (!valid || submitting.current) return; submitting.current = true; setSaving(true); setMessage(""); try { await repository.saveProductionRecord(draft, 0); setMessage("Saved"); setDraft(blank); } catch (error: any) { if (error?.code === "40001") { setMessage("다른 사용자가 수정했습니다"); await onConflict(draft); } else if (error?.code === "42501") setMessage("수정 권한이 없습니다"); else setMessage("저장에 실패했습니다"); } finally { submitting.current = false; setSaving(false); } };
   const number = (key: "inputQty" | "actualQty" | "okQty" | "ngQty", label: string) => <label>{label}<input aria-label={label} type="number" min="0" value={draft[key]} onChange={(e) => set(key, e.target.value === "" ? Number.NaN : Number(e.target.value))} /></label>;
