@@ -23,6 +23,8 @@ describe("AdminPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Deactivate Wait" }));
     await waitFor(() => expect(deactivateDowntimeReason).toHaveBeenCalledWith("d1", 1));
     fireEvent.change(screen.getByLabelText("ST model"), { target: { value: "m1" } });
+    fireEvent.change(screen.getByLabelText("Process"), { target: { value: "p1" } });
+    fireEvent.change(screen.getByLabelText("Line"), { target: { value: "l1" } });
     fireEvent.change(screen.getByLabelText("Seconds per unit"), { target: { value: "0.82" } });
     fireEvent.change(screen.getByLabelText("Effective from"), { target: { value: "2026-07-01" } });
     fireEvent.click(screen.getByRole("button", { name: "Save standard time" }));
@@ -36,6 +38,8 @@ describe("AdminPage", () => {
     render(<AdminPage repository={{ listMasterData: vi.fn().mockResolvedValue(snapshot), createModel: vi.fn(), deactivateDowntimeReason: vi.fn(), saveStandardTime }} createUser={createUser} />);
     await screen.findByText("Wait");
     fireEvent.change(screen.getByLabelText("ST model"), { target: { value: "m1" } });
+    fireEvent.change(screen.getByLabelText("Process"), { target: { value: "p1" } });
+    fireEvent.change(screen.getByLabelText("Line"), { target: { value: "l1" } });
     fireEvent.change(screen.getByLabelText("Seconds per unit"), { target: { value: "0.82" } });
     fireEvent.change(screen.getByLabelText("Effective from"), { target: { value: "2026-07-01" } });
     fireEvent.click(screen.getByRole("button", { name: "Save standard time" }));
