@@ -104,4 +104,48 @@ describe("application authentication", () => {
     expect(error).not.toHaveBeenCalled();
     error.mockRestore();
   });
+
+  it("ignores delayed initial session restoration after a synchronous auth callback", async () => {
+    const initial = deferred<{ data: { session: typeof session | null }; error: null }>();
+    const profileB = deferred<{ data: { role: "operator"; is_active: boolean }; error: null }>();
+    const from = vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: vi.fn((_column, id) => ({ single: () => id === "user-b" ? profileB.promise : Promise.resolve({ data: { role: "admin", is_active: true }, error: null }) })) }) });
+    const client: SessionAuthClient = {
+      auth: {
+        getSession: vi.fn().mockReturnValue(initial.promise),
+        onAuthStateChange: vi.fn((callback) => { callback("SIGNED_IN", sessionB); return { data: { subscription: { unsubscribe: vi.fn() } } }; }),
+        signOut: vi.fn(),
+      },
+      from,
+    };
+    render(<MemoryRouter initialEntries={["/admin"]}><AuthProvider client={client}><App /><StateProbe /></AuthProvider></MemoryRouter>);
+    await act(async () => { profileB.resolve({ data: { role: "operator", is_active: true }, error: null }); });
+    await act(async () => { initial.resolve({ data: { session: sessionA }, error: null }); });
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("ready:user-b:operator");
+    expect(from).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears and signs out when a current profile request rejects", async () => {
+    const signOut = vi.fn();
+    const client: SessionAuthClient = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session }, error: null }), onAuthStateChange: vi.fn().mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } }), signOut },
+      from: vi.fn().mockReturnValue({ select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ single: () => Promise.reject(new Error("network")) }) }) }),
+    };
+    render(<MemoryRouter initialEntries={["/admin"]}><AuthProvider client={client}><App /><StateProbe /></AuthProvider></MemoryRouter>);
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("ready:none:none"));
+    expect(signOut).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Admin workspace")).not.toBeInTheDocument();
+  });
+
+  it("does not load a profile for an auth callback delivered after unmount", async () => {
+    let callback: (_event: string, next: typeof session | null) => void = () => undefined;
+    const from = vi.fn();
+    const client: SessionAuthClient = {
+      auth: { getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }), onAuthStateChange: vi.fn((next) => { callback = next; return { data: { subscription: { unsubscribe: vi.fn() } } }; }), signOut: vi.fn() },
+      from,
+    };
+    const view = render(<MemoryRouter><AuthProvider client={client}><App /></AuthProvider></MemoryRouter>);
+    view.unmount();
+    await act(async () => { callback("SIGNED_IN", sessionA); });
+    expect(from).not.toHaveBeenCalled();
+  });
 });
