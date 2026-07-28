@@ -11,12 +11,20 @@ export interface DashboardQualityFilters {
   productionRecordIds: string[];
 }
 export interface DashboardQualityRecord {
+  id?: string;
   productionRecordId: string;
   lineId: string;
   modelId: string;
   processId: string;
   inputQty: number;
   okQty: number;
+}
+export interface AnalysisDefectRecord {
+  id: string;
+  qualityRecordId: string;
+  type: string;
+  classification: "pseudo" | "real" | "scrap";
+  quantity: number;
 }
 type Query = PaginatedQuery<Record<string, unknown>> & {
   select(columns: string): Query;
@@ -26,7 +34,7 @@ type Query = PaginatedQuery<Record<string, unknown>> & {
   maybeSingle(): PromiseLike<{ data: Record<string, unknown> | null; error: { message?: string } | null }>;
 };
 export interface QualityClient { from(table: "production_records"): Query; }
-export interface DashboardQualityClient extends QualityClient { from(table: "production_records" | "quality_records"): Query; }
+export interface DashboardQualityClient extends QualityClient { from(table: "production_records" | "quality_records" | "defect_records"): Query; }
 export function createQualityRepository(client: QualityClient = getSupabaseClient() as unknown as DashboardQualityClient) {
   return {
     async findExisting(input: { productionDate: string; shiftId: string; timeSlotId: string; lineId: string; modelId: string; processId: string }): Promise<ExistingProductionRecord | null> {
@@ -51,12 +59,34 @@ export function createQualityRepository(client: QualityClient = getSupabaseClien
         ));
       }
       return rows.map((row) => ({
+        id: String(row.id),
         productionRecordId: String(row.production_record_id),
         lineId: String(row.line_id),
         modelId: String(row.model_id),
         processId: String(row.process_id),
         inputQty: Number(row.input_qty),
         okQty: Number(row.ok_qty),
+      }));
+    },
+    async listAnalysisDefects(qualityRecordIds: string[]): Promise<AnalysisDefectRecord[]> {
+      if (qualityRecordIds.length === 0) return [];
+      const rows: Record<string, unknown>[] = [];
+      for (const qualityIdChunk of chunkIds(qualityRecordIds)) {
+        rows.push(...await readAllPages(
+          () => (client as DashboardQualityClient).from("defect_records")
+            .select("id,quality_record_id,defect_type,classification,quantity")
+            .in("quality_record_id", qualityIdChunk)
+            .is("deleted_at", null),
+          "analysis_defect_lookup_failed",
+          (row) => String(row.id),
+        ));
+      }
+      return rows.map((row) => ({
+        id: String(row.id),
+        qualityRecordId: String(row.quality_record_id),
+        type: String(row.defect_type),
+        classification: row.classification as AnalysisDefectRecord["classification"],
+        quantity: Number(row.quantity),
       }));
     },
   };

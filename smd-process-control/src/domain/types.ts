@@ -189,8 +189,39 @@ export interface AnalysisFilters {
 
 export interface AnalysisDataset {
   filters: AnalysisFilters;
-  yieldSeries: Array<{ period: string; inputQty: number; okQty: number; target: number | null }>;
-  utilizationSeries: Array<{ period: string; actualQty: number; productiveSeconds: number; netSeconds: number }>;
-  downtime: Array<{ reason: string; minutes: number }>;
+  yieldSeries: Array<{
+    period: string;
+    inputQty: number;
+    okQty: number;
+    target: number | null;
+    belowTarget: boolean;
+  }>;
+  utilizationSeries: Array<{
+    period: string;
+    actualQty: number;
+    productiveSeconds: number;
+    netSeconds: number;
+    utilizationPercent: number | null;
+  }>;
+  processLines: Array<{
+    processCode: ProcessCode;
+    lineId: string;
+    lineCode: string;
+    inputQty: number;
+    okQty: number;
+    yieldPercent: number | null;
+    target: number | null;
+    belowTarget: boolean;
+  }>;
+  timeSlots: Array<{
+    timeSlotId: string;
+    timeSlotCode: string;
+    actualQty: number;
+    productiveSeconds: number;
+    netSeconds: number;
+    utilizationPercent: number | null;
+  }>;
+  downtime: Array<{ reason: string; minutes: number; lostUnits: number }>;
   defects: Array<{ type: string; classification: "pseudo" | "real" | "scrap"; quantity: number }>;
+  generatedBy: string;
 }

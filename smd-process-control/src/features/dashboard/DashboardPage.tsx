@@ -130,6 +130,7 @@ export function DashboardPage({
       <a className="dashboard-brand" href="/"><span className="brand-mark">S</span><span><strong>SMD CONTROL</strong><small>생산 공정 관리</small></span></a>
       <nav aria-label="대시보드 메뉴" className="dashboard-nav">
         <a className="is-active" href="/"><span>▦</span> 통합 대시보드</a>
+        <a href="/analysis"><span>⌁</span> 상세 분석</a>
         <a href="/entry"><span>＋</span> 생산 실적 입력</a>
         <a href="/upload"><span>⇧</span> 엑셀 업로드</a>
         <a href="/admin"><span>⚙</span> 기준정보 관리</a>
