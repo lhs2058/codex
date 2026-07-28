@@ -11,6 +11,7 @@ node_modules/
 .worktrees/
 .superpowers/
 .tmp-smd-analysis/
+.tmp-task9-fixtures/
 *.log
 *.xlsx
 .agents/
