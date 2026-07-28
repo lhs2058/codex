@@ -173,6 +173,7 @@ export interface DashboardSnapshot {
   attentionCount: number;
   yields: Array<{ processCode: ProcessCode; lineId: string; result: MetricResult }>;
   utilization: Array<{ lineId: string; result: MetricResult }>;
+  downtime: Array<{ reasonId: string; reasonName: string; minutes: number }>;
   entryProgress: Array<{ timeSlotId: string; status: "complete" | "in-progress" | "waiting" }>;
 }
 
