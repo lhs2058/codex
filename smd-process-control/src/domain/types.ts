@@ -89,9 +89,22 @@ export interface WorkbookSheet {
   data: unknown[][];
 }
 
+export type WorkbookDiagnosticCode =
+  | "ambiguous-workbook"
+  | "unsupported-template-version"
+  | "missing-workbook-signature";
+
+export interface WorkbookDiagnostic {
+  code: WorkbookDiagnosticCode;
+  message: string;
+  sourceSheet?: string;
+  sourceRow?: number;
+  field?: string;
+}
+
 export interface WorkbookDetection {
   kind: WorkbookKind;
-  diagnostics: Array<{ code: "ambiguous-workbook"; message: string }>;
+  diagnostics: WorkbookDiagnostic[];
 }
 
 export interface NormalizedImportRow {
@@ -117,6 +130,7 @@ export interface ImportDiagnostic {
   sourceRow: number;
   code: ImportRowErrorCode | "ambiguous-workbook";
   message: string;
+  field?: string;
 }
 
 export interface ImportParseResult {
