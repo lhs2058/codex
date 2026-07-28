@@ -49,4 +49,4 @@ Implemented the independent SMD Process Control Supabase configuration and migra
 
 ## Commit
 
-Pending commit SHA.
+`8f4a49290060c9a13f06f156d72c970ab4efdf41` (`feat(smd): define process control database schema`)
