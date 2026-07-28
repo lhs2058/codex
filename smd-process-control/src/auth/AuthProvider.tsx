@@ -21,26 +21,38 @@ export function AuthProvider({ client, children }: PropsWithChildren<{ client: S
   const [state, setState] = useState<AuthState>({ status: "loading", session: null, profile: null });
 
   useEffect(() => {
-    let disposed = false;
-    const resolveSession = async (session: Session | null) => {
-      if (!session) {
-        if (!disposed) setState({ status: "ready", session: null, profile: null });
-        return;
-      }
-      if (!disposed) setState({ status: "loading", session: null, profile: null });
+    let mounted = true;
+    let generation = 0;
+    const current = (requestGeneration: number) => mounted && generation === requestGeneration;
+    const resolveProfile = async (session: Session, requestGeneration: number) => {
       const { data, error } = await client.from("profiles").select("role,is_active").eq("id", session.user.id).single();
-      if (disposed) return;
+      if (!current(requestGeneration)) return;
       if (error || !data || !data.is_active) {
         setState({ status: "ready", session: null, profile: null });
-        await client.auth.signOut();
+        void Promise.resolve(client.auth.signOut()).catch(() => undefined);
         return;
       }
       setState({ status: "ready", session, profile: { role: data.role, isActive: true } });
     };
 
-    const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => { void resolveSession(session); });
-    void client.auth.getSession().then(({ data }) => resolveSession(data.session)).catch(() => resolveSession(null));
-    return () => { disposed = true; subscription.unsubscribe(); };
+    const beginSession = (session: Session | null) => {
+      const requestGeneration = ++generation;
+      if (!session) {
+        if (current(requestGeneration)) setState({ status: "ready", session: null, profile: null });
+        return;
+      }
+      setState({ status: "loading", session: null, profile: null });
+      void resolveProfile(session, requestGeneration);
+    };
+
+    const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => { beginSession(session); });
+    const initialGeneration = generation;
+    void client.auth.getSession().then(({ data }) => {
+      if (mounted && generation === initialGeneration) beginSession(data.session);
+    }).catch(() => {
+      if (mounted && generation === initialGeneration) beginSession(null);
+    });
+    return () => { mounted = false; generation += 1; subscription.unsubscribe(); };
   }, [client]);
 
   const value = useMemo(() => state, [state]);
