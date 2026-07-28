@@ -63,8 +63,12 @@ function calendarDate(year: number, month: number, day: number): string {
 }
 
 function excelSerialDate(serial: number): string {
-  if (!Number.isFinite(serial) || !Number.isInteger(serial) || serial < 1) error("Invalid Excel date serial");
-  const utc = new Date(Date.UTC(1899, 11, 30 + serial));
+  // Excel's 1900 system intentionally contains a nonexistent 1900-02-29 at serial 60.
+  if (!Number.isFinite(serial) || !Number.isInteger(serial) || serial < 1 || serial > 2_958_465 || serial === 60) {
+    error("Invalid Excel date serial");
+  }
+  const daysSince1899December31 = serial < 60 ? serial : serial - 1;
+  const utc = new Date(Date.UTC(1899, 11, 31 + daysSince1899December31));
   return calendarDate(utc.getUTCFullYear(), utc.getUTCMonth() + 1, utc.getUTCDate());
 }
 
