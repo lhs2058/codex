@@ -181,8 +181,6 @@ export async function buildAnalysisPdfDocument(
   };
   const table = (title: string, headers: string[], rows: string[][], widths: number[]) => {
     heading(title);
-    const rowHeight = (values: string[]) => Math.max(7, ...values.map((value, index) =>
-      document.splitTextToSize(value, Math.max(5, widths[index] - 4)).length * 4 + 3));
     const drawHeader = () => {
       ensure(8);
       let x = margin;
@@ -198,27 +196,41 @@ export async function buildAnalysisPdfDocument(
       });
       y += 8;
     };
+    const continueTable = () => {
+      addPage();
+      heading(title, 10);
+      drawHeader();
+    };
     drawHeader();
     rows.forEach((row, rowIndex) => {
-      const height = rowHeight(row);
-      if (y + height > bottom) {
-        addPage();
-        heading(title, 10);
-        drawHeader();
-      }
-      let x = margin;
-      document.setFillColor(rowIndex % 2 === 0 ? 246 : 255, rowIndex % 2 === 0 ? 249 : 255, rowIndex % 2 === 0 ? 252 : 255);
-      document.setDrawColor(220, 227, 235);
-      document.setTextColor(46, 57, 73);
-      document.setFontSize(8);
-      row.forEach((value, index) => {
-        document.setFillColor(rowIndex % 2 === 0 ? 246 : 255, rowIndex % 2 === 0 ? 249 : 255, rowIndex % 2 === 0 ? 252 : 255);
-        document.rect(x, y, widths[index], height, "FD");
-        document.setTextColor(46, 57, 73);
-        document.text(document.splitTextToSize(value, widths[index] - 4), x + 2, y + 4.5);
-        x += widths[index];
+      const remaining = row.map((value, index) => {
+        const lines = document.splitTextToSize(value, Math.max(5, widths[index] - 4)) as string[];
+        return lines.length > 0 ? [...lines] : [""];
       });
-      y += height;
+      while (remaining.some((lines) => lines.length > 0)) {
+        let available = bottom - y;
+        let lineCapacity = Math.floor((available - 3) / 4);
+        if (lineCapacity < 1 || available < 7) {
+          continueTable();
+          available = bottom - y;
+          lineCapacity = Math.max(1, Math.floor((available - 3) / 4));
+        }
+        const cells = remaining.map((lines) => lines.splice(0, lineCapacity));
+        const height = Math.max(7, ...cells.map((lines) => lines.length * 4 + 3));
+        let x = margin;
+        document.setDrawColor(220, 227, 235);
+        document.setTextColor(46, 57, 73);
+        document.setFontSize(8);
+        cells.forEach((lines, index) => {
+          document.setFillColor(rowIndex % 2 === 0 ? 246 : 255, rowIndex % 2 === 0 ? 249 : 255, rowIndex % 2 === 0 ? 252 : 255);
+          document.rect(x, y, widths[index], height, "FD");
+          document.setTextColor(46, 57, 73);
+          if (lines.length > 0) document.text(lines, x + 2, y + 4.5);
+          x += widths[index];
+        });
+        y += height;
+        if (remaining.some((lines) => lines.length > 0)) continueTable();
+      }
     });
     y += 5;
   };

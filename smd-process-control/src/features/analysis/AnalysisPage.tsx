@@ -32,6 +32,15 @@ function defaultFilters(): AnalysisFilters {
 }
 
 const percent = (value: number | null) => value === null ? "—" : `${value.toFixed(1)}%`;
+const filterKey = (filters: AnalysisFilters) => JSON.stringify([
+  filters.from,
+  filters.to,
+  filters.groupBy,
+  filters.shiftId,
+  filters.modelId,
+  filters.lineId,
+  filters.processCode,
+]);
 
 export function AnalysisPage({
   initialFilters = defaultFilters(),
@@ -44,9 +53,11 @@ export function AnalysisPage({
   const analysisRef = useRef(analysisRepository ?? null);
   const [master, setMaster] = useState<MasterDataSnapshot | null>(null);
   const [filters, setFilters] = useState(initialFilters);
-  const [dataset, setDataset] = useState<AnalysisDataset | null>(null);
+  const [loaded, setLoaded] = useState<{ key: string; dataset: AnalysisDataset } | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<"excel" | "pdf" | null>(null);
+  const currentFilterKey = filterKey(filters);
+  const dataset = loaded?.key === currentFilterKey ? loaded.dataset : null;
 
   useEffect(() => {
     let current = true;
@@ -63,18 +74,25 @@ export function AnalysisPage({
   }, []);
 
   useEffect(() => {
-    let current = true;
+    const controller = new AbortController();
+    const requestedKey = filterKey(filters);
     setError("");
     try {
       analysisRef.current ??= createAnalysisRepository();
     } catch {
       setError("분석 서비스 연결 설정을 확인해 주세요.");
-      return () => { current = false; };
+      return () => controller.abort();
     }
-    analysisRef.current.loadAnalysis(filters)
-      .then((value) => { if (current) setDataset(value); })
-      .catch(() => { if (current) setError("분석 데이터를 불러오지 못했습니다."); });
-    return () => { current = false; };
+    analysisRef.current.loadAnalysis(filters, { signal: controller.signal })
+      .then((value) => {
+        if (!controller.signal.aborted) setLoaded({ key: requestedKey, dataset: value });
+      })
+      .catch((cause: unknown) => {
+        if (!controller.signal.aborted && (!(cause instanceof DOMException) || cause.name !== "AbortError")) {
+          setError("분석 데이터를 불러오지 못했습니다.");
+        }
+      });
+    return () => controller.abort();
   }, [filters]);
 
   const setFilter = <K extends keyof AnalysisFilters>(key: K, value: AnalysisFilters[K]) =>
@@ -117,6 +135,7 @@ export function AnalysisPage({
         <label>시작일<input aria-label="시작일" type="date" value={filters.from} onChange={(event) => setFilter("from", event.target.value)} /></label>
         <label>종료일<input aria-label="종료일" type="date" value={filters.to} onChange={(event) => setFilter("to", event.target.value)} /></label>
         <label>집계<select aria-label="집계" value={filters.groupBy} onChange={(event) => setFilter("groupBy", event.target.value as AnalysisFilters["groupBy"])}><option value="day">일</option><option value="week">주</option><option value="month">월</option></select></label>
+        <label>조<select aria-label="조" value={filters.shiftId ?? ""} onChange={(event) => setFilter("shiftId", event.target.value || null)}><option value="">전체</option>{master.shifts.filter((item) => item.active).map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}</select></label>
         <label>모델<select aria-label="모델" value={filters.modelId ?? ""} onChange={(event) => setFilter("modelId", event.target.value || null)}><option value="">전체</option>{master.models.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}</select></label>
         <label>라인<select aria-label="라인" value={filters.lineId ?? ""} onChange={(event) => setFilter("lineId", event.target.value || null)}><option value="">전체</option>{master.lines.map((item) => <option key={item.id} value={item.id}>{item.code}</option>)}</select></label>
         <label>공정<select aria-label="공정" value={filters.processCode ?? ""} onChange={(event) => setFilter("processCode", (event.target.value || null) as ProcessCode | null)}><option value="">전체</option>{master.processes.map((item) => <option key={item.id} value={item.code}>{item.code}</option>)}</select></label>

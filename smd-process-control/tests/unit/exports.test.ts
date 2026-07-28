@@ -126,6 +126,31 @@ describe("analysis PDF export", () => {
     expect(analysisReportFilename(longDataset, "pdf")).toBe("smd-report_2026-07-01_2026-07-31.pdf");
   });
 
+  it("splits one extreme multilingual logical row across pages without entering the footer", async () => {
+    const longReason = Array.from(
+      { length: 500 },
+      (_, index) => `설비 점검 ${index + 1} · Kiểm tra thiết bị ${index + 1}`,
+    ).join(" / ");
+    const document = await buildAnalysisPdfDocument({
+      ...dataset,
+      downtime: [{ reason: longReason, minutes: 1_234, lostUnits: 2_468 }],
+      defects: [],
+    }, "vi", {
+      generatedAt: new Date("2026-07-28T08:30:00.000Z"),
+      fontBase64: null,
+    });
+    const pageOperations = (document as unknown as { internal: { pages: string[][] } }).internal.pages;
+    const rectangleBottoms = pageOperations.flatMap((operations) =>
+      operations.flatMap((operation) => {
+        const match = operation.match(/^[\d.]+ ([\d.]+) [\d.]+ (-[\d.]+) re$/);
+        return match ? [Number(match[1]) + Number(match[2])] : [];
+      }));
+
+    expect(document.getNumberOfPages()).toBeGreaterThan(2);
+    expect(rectangleBottoms.length).toBeGreaterThan(0);
+    expect(Math.min(...rectangleBottoms)).toBeGreaterThanOrEqual(16 * (72 / 25.4) - 0.1);
+  });
+
   it("provides Korean and Vietnamese report labels for embedded-font output", () => {
     expect(pdfReportLabels("ko")).toEqual(expect.objectContaining({
       title: "SMD 공정 분석 보고서",

@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { AnalysisDataset, AnalysisFilters, MasterDataSnapshot } from "../../src/domain/types";
 import { createAnalysisRepository } from "../../src/data/repositories/analysis-repository";
+import { createMasterDataRepository } from "../../src/data/repositories/master-data-repository";
 import { AnalysisPage } from "../../src/features/analysis/AnalysisPage";
 
 const filters: AnalysisFilters = {
@@ -18,7 +19,10 @@ const master: MasterDataSnapshot = {
   models: [{ id: "model-a", code: "MODEL-A", name: "Model A", active: true, version: 1 }],
   processes: [{ id: "process-aoi", code: "AOI", name: "AOI", active: true }],
   lines: [{ id: "line-1", code: "L1", name: "Line 1", active: true, version: 1 }],
-  shifts: [{ id: "shift-day", code: "DAY", name: "Day", active: true, version: 1 }],
+  shifts: [
+    { id: "shift-day", code: "DAY", name: "Day", active: true, version: 1 },
+    { id: "shift-night", code: "NIGHT", name: "Night", active: true, version: 1 },
+  ],
   timeSlots: [
     { id: "slot-a", shiftId: "shift-day", code: "A", startsAt: "08:00", endsAt: "09:00", endDayOffset: 0, sequence: 1 },
   ],
@@ -50,6 +54,51 @@ function production(id: string, productionDate: string, inputQty: number, actual
 }
 
 describe("analysis repository", () => {
+  it("queries non-deleted history master rows without applying the active-only entry filter", async () => {
+    const tableRows: Record<string, unknown[]> = {
+      models: [{ id: "model-old", code: "OLD", name: "Old model", is_active: false, version: 2 }],
+      processes: [{ id: "process-old", code: "ICT", name: "Old process", is_active: false, version: 2 }],
+      lines: [{ id: "line-old", code: "OLD", name: "Old line", is_active: false, version: 2 }],
+      shifts: [{ id: "shift-old", code: "OLD", name: "Old shift", is_active: false, version: 2 }],
+      time_slots: [{ id: "slot-old", shift_id: "shift-old", code: "Z", starts_at: "08:00", ends_at: "09:00", end_day_offset: 0, sequence: 9, is_active: false, version: 2 }],
+      downtime_reasons: [{ id: "reason-old", code: "OLD", name: "Legacy stop", is_active: false, version: 2 }],
+      standard_times: [{ id: "st-old", model_id: "model-old", process_id: "process-old", line_id: "line-old", seconds_per_unit: 60, effective_from: "2025-01-01", effective_to: null }],
+    };
+    const activeFilters: string[] = [];
+    const deletedFilters: string[] = [];
+    const client = {
+      from: vi.fn((table: string) => {
+        const query: any = {
+          select: vi.fn(() => query),
+          is: vi.fn((column: string) => {
+            if (column === "deleted_at") deletedFilters.push(table);
+            return query;
+          }),
+          eq: vi.fn((column: string) => {
+            if (column === "is_active") activeFilters.push(table);
+            return query;
+          }),
+          order: vi.fn(() => Promise.resolve({ data: tableRows[table], error: null })),
+        };
+        return query;
+      }),
+    };
+
+    const result = await createMasterDataRepository(client as any).listAnalysisMasterData();
+
+    expect(activeFilters).toEqual([]);
+    expect(deletedFilters).toHaveLength(7);
+    expect(result).toEqual(expect.objectContaining({
+      models: [expect.objectContaining({ code: "OLD", active: false })],
+      processes: [expect.objectContaining({ code: "ICT", active: false })],
+      lines: [expect.objectContaining({ code: "OLD", active: false })],
+      shifts: [expect.objectContaining({ code: "OLD", active: false })],
+      timeSlots: [expect.objectContaining({ code: "Z" })],
+      downtimeReasons: [expect.objectContaining({ name: "Legacy stop", active: false })],
+      standardTimes: [expect.objectContaining({ secondsPerUnit: 60 })],
+    }));
+  });
+
   it("groups day, ISO week, and month while preserving filter contracts and target misses", async () => {
     const records = new Map([
       ["2026-07-27", [production("p-1", "2026-07-27", 100, 80)]],
@@ -63,7 +112,7 @@ describe("analysis repository", () => {
     const listDashboardQuality = vi.fn(({ productionRecordIds }) =>
       Promise.resolve(productionRecordIds.map((id: string) => qualities.get(id)).filter(Boolean)));
     const repository = createAnalysisRepository({
-      master: { listMasterData: vi.fn().mockResolvedValue(master) },
+      master: { listAnalysisMasterData: vi.fn().mockResolvedValue(master) },
       production: { listDashboardProduction },
       quality: {
         listDashboardQuality,
@@ -119,7 +168,7 @@ describe("analysis repository", () => {
 
   it("sorts aggregated defect quantities descending", async () => {
     const repository = createAnalysisRepository({
-      master: { listMasterData: vi.fn().mockResolvedValue(master) },
+      master: { listAnalysisMasterData: vi.fn().mockResolvedValue(master) },
       production: { listDashboardProduction: vi.fn(({ productionDate }) =>
         Promise.resolve(productionDate === "2026-07-27" ? [production("p-1", productionDate, 100, 80)] : [])) },
       quality: {
@@ -141,6 +190,136 @@ describe("analysis repository", () => {
       { type: "Bridge", classification: "real", quantity: 7 },
       { type: "Solder", classification: "pseudo", quantity: 6 },
     ]);
+  });
+
+  it("bounds date-query concurrency to four and keeps period output deterministic", async () => {
+    let active = 0;
+    let maxActive = 0;
+    const completions: string[] = [];
+    const listDashboardProduction = vi.fn(async ({ productionDate }: { productionDate: string }) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, productionDate.endsWith("01") ? 12 : 2));
+      completions.push(productionDate);
+      active -= 1;
+      return [production(`p-${productionDate}`, productionDate, 10, 8)];
+    });
+    const repository = createAnalysisRepository({
+      master: { listAnalysisMasterData: vi.fn().mockResolvedValue(master) },
+      production: { listDashboardProduction },
+      quality: {
+        listDashboardQuality: vi.fn(({ productionDate }) => Promise.resolve([{
+          id: `q-${productionDate}`,
+          productionRecordId: `p-${productionDate}`,
+          lineId: "line-1",
+          modelId: "model-a",
+          processId: "process-aoi",
+          inputQty: 10,
+          okQty: 9,
+        }])),
+        listAnalysisDefects: vi.fn().mockResolvedValue([]),
+      },
+      targets: { listYieldTargets: vi.fn().mockResolvedValue([]) },
+    });
+
+    const result = await repository.loadAnalysis({
+      ...filters,
+      from: "2026-07-01",
+      to: "2026-07-12",
+    });
+
+    expect(maxActive).toBeLessThanOrEqual(4);
+    expect(completions[0]).not.toBe("2026-07-01");
+    expect(result.yieldSeries.map((row) => row.period)).toEqual(
+      Array.from({ length: 12 }, (_, index) => `2026-07-${String(index + 1).padStart(2, "0")}`),
+    );
+  });
+
+  it("stops scheduling date queries and rejects with AbortError when aborted", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const listDashboardProduction = vi.fn(async () => {
+      await gate;
+      return [];
+    });
+    const repository = createAnalysisRepository({
+      master: { listAnalysisMasterData: vi.fn().mockResolvedValue(master) },
+      production: { listDashboardProduction },
+      quality: {
+        listDashboardQuality: vi.fn().mockResolvedValue([]),
+        listAnalysisDefects: vi.fn().mockResolvedValue([]),
+      },
+      targets: { listYieldTargets: vi.fn().mockResolvedValue([]) },
+    });
+    const controller = new AbortController();
+
+    const pending = repository.loadAnalysis({
+      ...filters,
+      from: "2026-07-01",
+      to: "2026-07-20",
+    }, { signal: controller.signal });
+    await Promise.resolve();
+    controller.abort();
+    release();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(listDashboardProduction.mock.calls.length).toBeLessThan(20);
+  });
+
+  it("uses inactive historical labels, time slots, reasons, and standard times", async () => {
+    const history: MasterDataSnapshot = {
+      ...master,
+      models: [...master.models, { id: "model-old", code: "MODEL-OLD", name: "Old model", active: false, version: 2 }],
+      processes: [...master.processes, { id: "process-old", code: "ICT", name: "Legacy ICT", active: false }],
+      lines: [...master.lines, { id: "line-old", code: "OLD", name: "Old line", active: false, version: 2 }],
+      shifts: [...master.shifts, { id: "shift-old", code: "OLD", name: "Old shift", active: false, version: 2 }],
+      timeSlots: [...master.timeSlots, { id: "slot-old", shiftId: "shift-old", code: "Z", startsAt: "08:00", endsAt: "09:00", endDayOffset: 0, sequence: 99 }],
+      downtimeReasons: [...master.downtimeReasons, { id: "reason-old", code: "OLD", name: "Legacy stop", active: false, version: 2 }],
+      standardTimes: [...master.standardTimes, {
+        id: "st-old",
+        modelId: "model-old",
+        processId: "process-old",
+        lineId: "line-old",
+        secondsPerUnit: 60,
+        effectiveFrom: "2025-01-01",
+        effectiveTo: null,
+      }],
+    };
+    const historicalRecord = {
+      id: "p-old",
+      productionDate: "2026-07-27",
+      shiftId: "shift-old",
+      timeSlotId: "slot-old",
+      lineId: "line-old",
+      modelId: "model-old",
+      processId: "process-old",
+      inputQty: 100,
+      actualQty: 50,
+      downtime: [{ reasonId: "reason-old", minutes: 10 }],
+    };
+    const repository = createAnalysisRepository({
+      master: { listAnalysisMasterData: vi.fn().mockResolvedValue(history) },
+      production: { listDashboardProduction: vi.fn().mockResolvedValue([historicalRecord]) },
+      quality: {
+        listDashboardQuality: vi.fn().mockResolvedValue([{
+          id: "q-old",
+          productionRecordId: "p-old",
+          lineId: "line-old",
+          modelId: "model-old",
+          processId: "process-old",
+          inputQty: 100,
+          okQty: 95,
+        }]),
+        listAnalysisDefects: vi.fn().mockResolvedValue([]),
+      },
+      targets: { listYieldTargets: vi.fn().mockResolvedValue([]) },
+    });
+
+    const result = await repository.loadAnalysis({ ...filters, from: "2026-07-27", to: "2026-07-27", shiftId: null, modelId: null, lineId: null, processCode: null });
+
+    expect(result.processLines).toEqual([expect.objectContaining({ processCode: "ICT", lineCode: "OLD" })]);
+    expect(result.timeSlots).toEqual([expect.objectContaining({ timeSlotCode: "Z", utilizationPercent: 100 })]);
+    expect(result.downtime).toEqual([{ reason: "Legacy stop", minutes: 10, lostUnits: 10 }]);
   });
 });
 
@@ -164,7 +343,7 @@ const dataset: AnalysisDataset = {
 };
 
 describe("AnalysisPage", () => {
-  it("reloads on grouping and process, line, model, and date filter changes", async () => {
+  it("reloads on grouping and shift, process, line, model, and date filter changes", async () => {
     const loadAnalysis = vi.fn().mockResolvedValue(dataset);
     render(<AnalysisPage
       initialFilters={filters}
@@ -176,6 +355,7 @@ describe("AnalysisPage", () => {
     await screen.findByRole("heading", { name: "상세 분석" });
 
     fireEvent.change(screen.getByLabelText("집계"), { target: { value: "week" } });
+    fireEvent.change(screen.getByLabelText("조"), { target: { value: "shift-night" } });
     fireEvent.change(screen.getByLabelText("공정"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("라인"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("모델"), { target: { value: "" } });
@@ -186,10 +366,77 @@ describe("AnalysisPage", () => {
       from: "2026-07-28",
       to: "2026-08-02",
       groupBy: "week",
+      shiftId: "shift-night",
       processCode: null,
       lineId: null,
       modelId: null,
-    })));
+    }), expect.objectContaining({ signal: expect.any(AbortSignal) })));
+  });
+
+  it("invalidates stale data immediately and cannot export it while new filters load", async () => {
+    let resolveLatest!: (value: AnalysisDataset) => void;
+    const latest = new Promise<AnalysisDataset>((resolve) => { resolveLatest = resolve; });
+    const loadAnalysis = vi.fn()
+      .mockResolvedValueOnce(dataset)
+      .mockReturnValueOnce(latest);
+    const excelDownloader = vi.fn().mockResolvedValue(undefined);
+    render(<AnalysisPage
+      initialFilters={filters}
+      masterRepository={{ listMasterData: vi.fn().mockResolvedValue(master) }}
+      analysisRepository={{ loadAnalysis }}
+      excelDownloader={excelDownloader}
+      pdfDownloader={vi.fn().mockResolvedValue(undefined)}
+    />);
+    await screen.findByRole("region", { name: "수율 추이 (%)" });
+    const excel = screen.getByRole("button", { name: "Excel" });
+    expect(excel).toBeEnabled();
+
+    fireEvent.change(screen.getByLabelText("집계"), { target: { value: "week" } });
+    expect(excel).toBeDisabled();
+    fireEvent.click(excel);
+    expect(excelDownloader).not.toHaveBeenCalled();
+
+    resolveLatest({ ...dataset, filters: { ...filters, groupBy: "week" } });
+    await waitFor(() => expect(excel).toBeEnabled());
+  });
+
+  it("aborts the previous request and ignores its late response after filter changes", async () => {
+    let resolveInitial!: (value: AnalysisDataset) => void;
+    let resolveLatest!: (value: AnalysisDataset) => void;
+    const initial = new Promise<AnalysisDataset>((resolve) => { resolveInitial = resolve; });
+    const latest = new Promise<AnalysisDataset>((resolve) => { resolveLatest = resolve; });
+    const loadAnalysis = vi.fn()
+      .mockReturnValueOnce(initial)
+      .mockReturnValueOnce(latest);
+    render(<AnalysisPage
+      initialFilters={filters}
+      masterRepository={{ listMasterData: vi.fn().mockResolvedValue(master) }}
+      analysisRepository={{ loadAnalysis }}
+      excelDownloader={vi.fn().mockResolvedValue(undefined)}
+      pdfDownloader={vi.fn().mockResolvedValue(undefined)}
+    />);
+    await screen.findByLabelText("집계");
+
+    fireEvent.change(screen.getByLabelText("집계"), { target: { value: "week" } });
+    const initialSignal = loadAnalysis.mock.calls[0][1]?.signal as AbortSignal | undefined;
+    expect(initialSignal?.aborted).toBe(true);
+    await act(async () => {
+      resolveLatest({
+        ...dataset,
+        filters: { ...filters, groupBy: "week" },
+        defects: [{ type: "LATEST", classification: "real", quantity: 1 }],
+      });
+    });
+    expect(await screen.findByText("LATEST")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveInitial({
+        ...dataset,
+        defects: [{ type: "STALE", classification: "real", quantity: 999 }],
+      });
+    });
+    expect(screen.queryByText("STALE")).not.toBeInTheDocument();
+    expect(screen.getByText("LATEST")).toBeInTheDocument();
   });
 
   it("shows units, accessible summaries, target misses, time-slot loss, and sorted defect detail", async () => {

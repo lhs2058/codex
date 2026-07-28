@@ -7,7 +7,7 @@ import type {
   MetricResult,
   ProcessCode,
 } from "../../domain/types";
-import { createMasterDataRepository, findEffectiveStandardTime, type MasterDataRepository } from "./master-data-repository";
+import { createMasterDataRepository, findEffectiveStandardTime, type AnalysisMasterDataRepository } from "./master-data-repository";
 import {
   createProductionRepository,
   type DashboardProductionRecord,
@@ -23,11 +23,15 @@ import { createYieldTargetRepository, type YieldTarget, type YieldTargetReposito
 import { getSupabaseClient } from "../supabase";
 
 export interface AnalysisRepository {
-  loadAnalysis(filters: AnalysisFilters): Promise<AnalysisDataset>;
+  loadAnalysis(filters: AnalysisFilters, options?: AnalysisLoadOptions): Promise<AnalysisDataset>;
+}
+
+export interface AnalysisLoadOptions {
+  signal?: AbortSignal;
 }
 
 interface AnalysisDependencies {
-  master: Pick<MasterDataRepository, "listMasterData">;
+  master: AnalysisMasterDataRepository;
   production: Pick<ProductionRepository, "listDashboardProduction">;
   quality: {
     listDashboardQuality(filters: DashboardQualityFilters): Promise<DashboardQualityRecord[]>;
@@ -45,6 +49,34 @@ interface DatedProduction {
 interface DatedQuality {
   date: string;
   row: DashboardQualityRecord;
+}
+
+export const ANALYSIS_DATE_CONCURRENCY = 4;
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new DOMException("Analysis load aborted", "AbortError");
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  worker: (value: T, index: number) => Promise<R>,
+  signal?: AbortSignal,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const run = async () => {
+    while (nextIndex < values.length) {
+      throwIfAborted(signal);
+      const index = nextIndex++;
+      results[index] = await worker(values[index], index);
+      throwIfAborted(signal);
+    }
+  };
+  await Promise.all(Array.from(
+    { length: Math.min(ANALYSIS_DATE_CONCURRENCY, values.length) },
+    () => run(),
+  ));
+  return results;
 }
 
 function dates(from: string, to: string): string[] {
@@ -193,10 +225,12 @@ export function createAnalysisRepository(dependencies?: Partial<AnalysisDependen
   const targetRepository = dependencies?.targets ?? createYieldTargetRepository();
   const generatedBy = dependencies?.generatedBy ?? defaultGeneratedBy;
   return {
-    async loadAnalysis(filters) {
-      const master = await masterRepository.listMasterData();
+    async loadAnalysis(filters, options = {}) {
+      throwIfAborted(options.signal);
+      const master = await masterRepository.listAnalysisMasterData();
+      throwIfAborted(options.signal);
       const selectedProcessId = processId(filters, master);
-      const byDate = await Promise.all(dates(filters.from, filters.to).map(async (date) => {
+      const byDate = await mapWithConcurrency(dates(filters.from, filters.to), async (date) => {
         const production = await productionRepository.listDashboardProduction({
           productionDate: date,
           shiftId: filters.shiftId,
@@ -213,7 +247,8 @@ export function createAnalysisRepository(dependencies?: Partial<AnalysisDependen
           productionRecordIds: production.map((row) => row.id),
         });
         return { date, production, quality };
-      }));
+      }, options.signal);
+      throwIfAborted(options.signal);
       const productionRows = byDate.flatMap(({ date, production }) =>
         production.map((row) => ({ date, row })));
       const qualityRows = byDate.flatMap(({ date, quality }) =>
@@ -225,6 +260,7 @@ export function createAnalysisRepository(dependencies?: Partial<AnalysisDependen
         ),
         generatedBy(),
       ]);
+      throwIfAborted(options.signal);
 
       const yieldGroups = new Map<string, DatedQuality[]>();
       const utilizationGroups = new Map<string, DatedProduction[]>();
@@ -320,6 +356,6 @@ export function createAnalysisRepository(dependencies?: Partial<AnalysisDependen
   };
 }
 
-export function loadAnalysis(filters: AnalysisFilters): Promise<AnalysisDataset> {
-  return createAnalysisRepository().loadAnalysis(filters);
+export function loadAnalysis(filters: AnalysisFilters, options?: AnalysisLoadOptions): Promise<AnalysisDataset> {
+  return createAnalysisRepository().loadAnalysis(filters, options);
 }
