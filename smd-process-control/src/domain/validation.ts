@@ -30,7 +30,8 @@ function downtimeSeconds(row: DowntimeDraft): number | null {
   const hasMinutes = row.minutes !== undefined;
   const hasStart = row.startTime !== undefined;
   const hasEnd = row.endTime !== undefined;
-  if (hasMinutes) return !hasStart && !hasEnd && Number.isFinite(row.minutes) && Number.isInteger(row.minutes) && row.minutes >= 0 ? row.minutes * 60 : null;
+  const minutes = row.minutes;
+  if (hasMinutes) return !hasStart && !hasEnd && minutes !== undefined && Number.isFinite(minutes) && Number.isInteger(minutes) && minutes >= 0 ? minutes * 60 : null;
   if (!hasStart || !hasEnd || !row.startTime || !row.endTime || !localTime.test(row.startTime) || !localTime.test(row.endTime)) return null;
   const [sh, sm] = row.startTime.split(":").map(Number); const [eh, em] = row.endTime.split(":").map(Number);
   const start = sh * 3600 + sm * 60; const end = eh * 3600 + em * 60;
