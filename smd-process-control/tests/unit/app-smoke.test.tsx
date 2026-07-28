@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import { App } from "../../src/app/App";
 
-it("renders the SMD application shell", () => {
-  render(<App />);
-  expect(screen.getByRole("heading", { name: "SMD CONTROL" })).toBeInTheDocument();
+it("holds protected routes behind session restoration", () => {
+  render(<MemoryRouter><App /></MemoryRouter>);
+  expect(screen.getByRole("status")).toHaveTextContent("Loading session…");
 });

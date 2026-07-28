@@ -1,11 +1,8 @@
 import { FormEvent, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { supabase } from "../data/supabase";
+import { getSupabaseClient } from "../data/supabase";
 import { signInWithEmployeeId, type AuthClient } from "./auth-service";
-
-function nextPath(value: string | null): string {
-  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/";
-}
+import { safeNextPath } from "./safe-next";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -20,8 +17,8 @@ export function LoginPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await signInWithEmployeeId(supabase as unknown as AuthClient, employeeId, password);
-      navigate(nextPath(new URLSearchParams(location.search).get("next")), { replace: true });
+      await signInWithEmployeeId(getSupabaseClient() as unknown as AuthClient, employeeId, password);
+      navigate(safeNextPath(new URLSearchParams(location.search).get("next")), { replace: true });
     } catch {
       setError("사번 또는 비밀번호를 확인하세요.");
     } finally {

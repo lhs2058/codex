@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { RequireRole, type AuthState } from "../../src/auth/RequireRole";
 import { signInWithEmployeeId, type AuthClient } from "../../src/auth/auth-service";
+import { safeNextPath } from "../../src/auth/safe-next";
 
 function Location() {
   const location = useLocation();
@@ -73,5 +74,11 @@ describe("RequireRole", () => {
   it("renders children for an active permitted role", () => {
     render(guard({ status: "ready", session, profile: { role: "admin", isActive: true } }));
     expect(screen.getByText("admin page")).toBeInTheDocument();
+  });
+});
+
+describe("safe next navigation", () => {
+  it("does not permit a protocol-relative or encoded redirect target", () => {
+    expect(safeNextPath("%2F%2Fevil.example")).toBe("/");
   });
 });
