@@ -1,3 +1,22 @@
 import type { ImportParseResult, WorkbookSheet } from "../contracts";
 import { normalizeLineName, normalizeProductionDate, normalizeQuantity } from "../normalize";
-export function parseSpiWorkbook(sheets: WorkbookSheet[]): ImportParseResult {const rows:ImportParseResult["rows"]=[],diagnostics:ImportParseResult["diagnostics"]=[];for(const s of sheets.filter(x=>/^(SPI MODEL|SPI Line)$/i.test(x.sheet)).sort((a,b)=>a.sheet.localeCompare(b.sheet))){const title=s.data.findIndex(r=>String(r[1]??r[2]??"").includes("Hiệu Suất Máy SPI"));if(title<0){diagnostics.push({sourceSheet:s.sheet,sourceRow:1,code:"missing-required-value",message:"SPI signature missing",field:"headers"});continue;}let line="",lastDate:unknown=null;for(let i=title+4;i<s.data.length;i++){const r=s.data[i]??[];if(typeof r[4]==="string"&&/line/i.test(r[4]))line=String(r[4]);if(r[2])lastDate=r[2];const date=lastDate,model=r[5],input=r[7],ok=r[8];if(!date||!model||input===undefined||ok===undefined){if((model||input!==undefined||ok!==undefined)&&!/^total|ttl$/i.test(String(r[2]??r[4]??"")))diagnostics.push({sourceSheet:s.sheet,sourceRow:i+1,code:"missing-required-value",message:"SPI candidate is incomplete",field:!date?"productionDate":!model?"modelCode":"inputQty"});continue;}try{const a=normalizeQuantity(input,"inputQty"),o=normalizeQuantity(ok,"okQty");if(o>a)throw new Error("okQty");rows.push({sourceSheet:s.sheet,sourceRow:i+1,productionDate:normalizeProductionDate(date,2026),shiftCode:String(r[3]??"DAY"),timeSlotCode:typeof r[6]==="string"&&/^[A-E]$/.test(r[6])?r[6]:null,lineCode:normalizeLineName(line||"LINE-1"),modelCode:String(model),processCode:"SPI",inputQty:a,actualQty:o,okQty:o,ngQty:a-o,downtimeMinutes:0,downtimeReasonCode:null,note:""});}catch(e){diagnostics.push({sourceSheet:s.sheet,sourceRow:i+1,code:"invalid-count",message:String(e),field:"counts"});}}}return {kind:"spi",rows,diagnostics};}
+
+const total = (row: unknown[]) => /total|ttl/i.test(String(row[2] ?? row[3] ?? row[6] ?? ""));
+export function parseSpiWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
+  const rows: ImportParseResult["rows"] = [], diagnostics: ImportParseResult["diagnostics"] = [];
+  for (const sheet of sheets.filter((s) => /^(SPI MODEL|SPI Line)$/i.test(s.sheet)).sort((a, b) => a.sheet.localeCompare(b.sheet))) {
+    const title = sheet.data.findIndex((r) => String(r[1] ?? r[2] ?? "").includes("Hiệu Suất Máy SPI"));
+    if (title < 0) { diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: 1, code: "missing-required-value", message: "SPI signature missing", field: "headers" }); continue; }
+    const modelSheet = /model/i.test(sheet.sheet); let lastDate: unknown = null;
+    for (let i = title + 4; i < sheet.data.length; i += 1) {
+      const row = sheet.data[i] ?? [];
+      if (total(row)) { lastDate = null; continue; }
+      const model = modelSheet ? row[6] : row[5]; const line = modelSheet ? "LINE-1" : row[4]; const dataCandidate = model || row[7] !== undefined || row[8] !== undefined;
+      if (!dataCandidate) continue;
+      const date = row[2] || lastDate;
+      if (!date || !model || row[7] === undefined || row[8] === undefined) { diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "missing-required-value", message: "SPI candidate is incomplete", field: !date ? "productionDate" : !model ? "modelCode" : "inputQty" }); continue; }
+      try { const inputQty = normalizeQuantity(row[7], "inputQty"), okQty = normalizeQuantity(row[8], "okQty"); if (okQty > inputQty) throw new Error("okQty"); rows.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, productionDate: normalizeProductionDate(date, 2026), shiftCode: String(row[3] ?? "DAY"), timeSlotCode: typeof row[6] === "string" && /^[A-E]$/.test(row[6]) ? row[6] : null, lineCode: normalizeLineName(line), modelCode: String(model), processCode: "SPI", inputQty, actualQty: okQty, okQty, ngQty: inputQty - okQty, downtimeMinutes: 0, downtimeReasonCode: null, note: "" }); if (row[2]) lastDate = row[2]; } catch (error) { diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "invalid-count", message: String(error), field: "counts" }); }
+    }
+  }
+  return { kind: "spi", rows, diagnostics };
+}

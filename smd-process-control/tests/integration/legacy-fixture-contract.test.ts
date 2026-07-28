@@ -20,6 +20,16 @@ describe("legacy fixture contracts", () => {
     expect(aoi["xl/workbook.xml"]!).toContain('name="AOI Line"');
     expect(aoi["xl/workbook.xml"]!).toContain('name="aoi model"');
     expect(Object.values(aoi).join("\n")).toContain("Data Theo Dõi Hiệu Suất Máy AOI");
+    for (const [file, sheets, title] of [
+      ["aoi-sample.xlsx", ["AOI Line", "aoi model"], "Data Theo Dõi Hiệu Suất Máy AOI"],
+      ["spi-sample.xlsx", ["SPI MODEL", "SPI Line"], "Data Theo Dõi Hiệu Suất Máy SPI"],
+      ["ict-sample.xlsx", ["Data HS Công Đoạn ICT"], "Data Theo Dõi Hiệu Suất"],
+      ["xray-sample.xlsx", ["Xray"], "Data Theo Dõi Hiệu Suất"],
+    ] as const) {
+      const book = await xml(file); const raw = Object.values(book).join("\n");
+      for (const name of sheets) expect(book["xl/workbook.xml"]!).toContain(`name="${name}"`);
+      expect(raw).toContain(title); expect(raw).toContain("mergeCell"); expect(raw).toMatch(/Ngày|Time/);
+    }
   });
 
   it("contains one intentional stored #DIV/0! ratio only in production", async () => {

@@ -1,4 +1,5 @@
 import type { WorkbookDetection, WorkbookKind, WorkbookSheet } from "./contracts";
+import { findProductionGroupedLayout } from "./production-layout";
 
 const QUALITY_HEADERS = ["date", "model", "input", "ok", "ng"];
 const PRODUCTION_HEADERS = ["date", "line", "time", "actual", "downtime"];
@@ -31,15 +32,6 @@ function legacyKind(sheetName: string): Exclude<WorkbookKind, "standard" | "unkn
   return null;
 }
 
-function hasGroupedProductionSignature(sheet: WorkbookSheet): boolean {
-  if (!/^\d{2}\.\d{2}$/.test(sheet.sheet)) return false;
-  const rows = sheet.data.slice(0, 8);
-  const title = rows[1]?.some((cell) => typeof cell === "string" && /báo cáo sản lượng.*ngày/i.test(cell));
-  const grouped = rows[2]?.some((cell) => typeof cell === "string" && /sản lượng từng time/i.test(cell));
-  const timeHeaders = rows[3]?.filter((cell) => typeof cell === "string" && /^time [a-e]/i.test(cell)).length ?? 0;
-  const subheaders = rows[5]?.filter((cell) => typeof cell === "string" && /capa|sản lượng thực tế|tỷ lệ|time dừng|ghi chú/i.test(cell)).length ?? 0;
-  return Boolean(title && grouped && timeHeaders >= 5 && subheaders >= 10);
-}
 
 export function detectWorkbook(sheets: WorkbookSheet[]): WorkbookDetection {
   const standardMatches = sheets.flatMap((sheet) => {
@@ -56,7 +48,8 @@ export function detectWorkbook(sheets: WorkbookSheet[]): WorkbookDetection {
   if (unsupported.length) return { kind: "unknown", diagnostics: unsupported.sort((a, b) => a.sourceSheet.localeCompare(b.sourceSheet) || a.sourceRow - b.sourceRow) };
 
   const matches = sheets.flatMap((sheet) => {
-    if (hasGroupedProductionSignature(sheet)) return [{ kind: "production" as const, sheet: sheet.sheet, row: 3 }];
+    const productionLayout = findProductionGroupedLayout(sheet);
+    if (productionLayout) return [{ kind: "production" as const, sheet: sheet.sheet, row: productionLayout.groupRow + 1 }];
     const kind = legacyKind(normalizeCell(sheet.sheet));
     if (!kind) return [];
     const rows = matchingRows(sheet, kind === "production" ? PRODUCTION_HEADERS : QUALITY_HEADERS);

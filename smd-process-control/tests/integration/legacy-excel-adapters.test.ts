@@ -18,17 +18,20 @@ async function readFixture(name: string): Promise<WorkbookSheet[]> {
 describe("legacy Excel adapters", () => {
   it("parses AOI line and model rows from the anonymized workbook and recomputes NG", async () => {
     const result = parseAoiWorkbook(await readFixture("aoi-sample.xlsx"));
-    expect(result.rows).toHaveLength(2);
     expect(result.rows).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceSheet: "AOI Line", sourceRow: 11, productionDate: "2026-07-27", lineCode: "LINE-1", modelCode: "MODEL-A", processCode: "AOI", inputQty: 100, okQty: 97, ngQty: 3, timeSlotCode: "A" }),
+      expect.objectContaining({ sourceSheet: "aoi model", sourceRow: 9, productionDate: "2026-07-27", lineCode: "LINE-1", modelCode: "MODEL-A", inputQty: 100, okQty: 97 }),
     ]));
   });
 
   it("parses SPI line and model rows without trusting stored yield", async () => {
     const result = parseSpiWorkbook(await readFixture("spi-sample.xlsx"));
-    expect(result.rows).toHaveLength(2);
     expect(result.rows.map((row) => [row.lineCode, row.modelCode, row.inputQty, row.okQty, row.ngQty])).toEqual(expect.arrayContaining([
       ["LINE-1", "MODEL-A", 40, 39, 1],
+    ]));
+    expect(result.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceSheet: "SPI Line", sourceRow: 10, productionDate: "2026-07-27", modelCode: "MODEL-A", inputQty: 40, okQty: 39 }),
+      expect.objectContaining({ sourceSheet: "SPI MODEL", sourceRow: 9, productionDate: "2026-07-27", modelCode: "MODEL-A", inputQty: 40, okQty: 39 }),
     ]));
   });
 
@@ -42,6 +45,16 @@ describe("legacy Excel adapters", () => {
     expect([...ict.diagnostics, ...xray.diagnostics]).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceRow: 11, code: "missing-required-value", field: "modelCode" }),
     ]));
+  });
+
+  it("reports ICT incomplete rows and a missing ICT signature independently", () => {
+    expect(parseIctWorkbook([{ sheet: "Data HS Công Đoạn ICT", data: [[null, "Data Theo Dõi Hiệu Suất"], [], [], [], [null, null, "27.07.2026", "DAY", null, null, "A", 2, 1]] }]).diagnostics).toContainEqual(expect.objectContaining({ field: "modelCode" }));
+    expect(parseIctWorkbook([{ sheet: "Data HS Công Đoạn ICT", data: [["wrong"]] }]).diagnostics).toContainEqual(expect.objectContaining({ field: "headers" }));
+  });
+
+  it("reports Xray incomplete rows and a missing Xray signature independently", () => {
+    expect(parseXrayWorkbook([{ sheet: "Xray", data: [[null, "Data Theo Dõi Hiệu Suất"], [], [], [], [null, null, "27.07.2026", "DAY", null, null, "A", 2, 1]] }]).diagnostics).toContainEqual(expect.objectContaining({ field: "modelCode" }));
+    expect(parseXrayWorkbook([{ sheet: "Xray", data: [["wrong"]] }]).diagnostics).toContainEqual(expect.objectContaining({ field: "headers" }));
   });
 
   it("expands production A-E cells, retains actuals and downtime, and ignores CAPA as input", async () => {
