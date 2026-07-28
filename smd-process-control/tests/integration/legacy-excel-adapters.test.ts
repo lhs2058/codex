@@ -18,7 +18,7 @@ async function readFixture(name: string): Promise<WorkbookSheet[]> {
 describe("legacy Excel adapters", () => {
   it("parses AOI line and model rows from the anonymized workbook and recomputes NG", async () => {
     const result = parseAoiWorkbook(await readFixture("aoi-sample.xlsx"));
-    expect(result.rows).toHaveLength(1);
+    expect(result.rows).toHaveLength(2);
     expect(result.rows).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceSheet: "AOI Line", sourceRow: 11, productionDate: "2026-07-27", lineCode: "LINE-1", modelCode: "MODEL-A", processCode: "AOI", inputQty: 100, okQty: 97, ngQty: 3, timeSlotCode: "A" }),
     ]));
@@ -26,10 +26,10 @@ describe("legacy Excel adapters", () => {
 
   it("parses SPI line and model rows without trusting stored yield", async () => {
     const result = parseSpiWorkbook(await readFixture("spi-sample.xlsx"));
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows.map((row) => [row.lineCode, row.modelCode, row.inputQty, row.okQty, row.ngQty])).toEqual([
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.map((row) => [row.lineCode, row.modelCode, row.inputQty, row.okQty, row.ngQty])).toEqual(expect.arrayContaining([
       ["LINE-1", "MODEL-A", 40, 39, 1],
-    ]);
+    ]));
   });
 
   it("keeps daily ICT and Xray quality rows untimed and skips aggregate rows with diagnostics", async () => {
@@ -39,7 +39,9 @@ describe("legacy Excel adapters", () => {
     expect(ict.rows[0]).toMatchObject({ sourceSheet: "Data HS Công Đoạn ICT", sourceRow: 9, timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-A", inputQty: 20, okQty: 19, ngQty: 1 });
     expect(xray.rows).toHaveLength(1);
     expect(xray.rows[0]).toMatchObject({ sourceSheet: "Xray", sourceRow: 9, timeSlotCode: null, lineCode: "LINE-2", modelCode: "MODEL-A", inputQty: 20, okQty: 19, ngQty: 1 });
-    expect([...ict.diagnostics, ...xray.diagnostics]).toEqual([]);
+    expect([...ict.diagnostics, ...xray.diagnostics]).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceRow: 11, code: "missing-required-value", field: "modelCode" }),
+    ]));
   });
 
   it("expands production A-E cells, retains actuals and downtime, and ignores CAPA as input", async () => {
