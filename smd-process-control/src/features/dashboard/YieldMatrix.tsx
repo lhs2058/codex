@@ -9,7 +9,7 @@ export function YieldMatrix({
   rows,
   master,
 }: {
-  rows: Array<{ processCode: ProcessCode; lineId: string; result: MetricResult }>;
+  rows: Array<{ processCode: ProcessCode; lineId: string; result: MetricResult; targetPercent: number | null }>;
   master: MasterDataSnapshot;
 }) {
   const { t } = useI18n();
@@ -18,7 +18,7 @@ export function YieldMatrix({
   return <section className="dashboard-card yield-matrix-card">
     <div className="dashboard-card-heading">
       <div><p className="dashboard-eyebrow">PROCESS QUALITY</p><h2>{t("yield.title")}</h2></div>
-      <span className="dashboard-legend"><i aria-hidden="true" /> {t("yield.target")}</span>
+      <span className="dashboard-legend"><i aria-hidden="true" /> {t("yield.configuredTargets")}</span>
     </div>
     <div className="yield-matrix-scroll">
       <table aria-label={t("yield.table")} className="yield-matrix">
@@ -26,10 +26,24 @@ export function YieldMatrix({
         <tbody>{processes.map((process) => <tr key={process.id}>
           <th scope="row">{process.name}</th>
           {lines.map((line) => {
-            const result = rows.find((row) => row.processCode === process.code && row.lineId === line.id)?.result;
+            const row = rows.find((candidate) => candidate.processCode === process.code && candidate.lineId === line.id);
+            const result = row?.result;
             const value = result?.status === "ok" ? result.value : null;
-            const status = value === null ? t("yield.unavailable") : value >= 95 ? t("yield.good") : value >= 90 ? t("yield.watch") : t("yield.low");
-            return <td key={line.id}><span className={value === null ? "metric-empty" : value >= 95 ? "metric-good" : value >= 90 ? "metric-watch" : "metric-low"}><span className="metric-symbol" aria-hidden="true">{value === null ? "—" : value >= 95 ? "✓" : value >= 90 ? "!" : "↓"}</span>{result ? formatPercent(result) : "—"}<span className="sr-only"> — {status}</span></span></td>;
+            const target = row?.targetPercent ?? null;
+            const meetsTarget = value !== null && target !== null && value >= target;
+            const status = value === null
+              ? t("yield.unavailable")
+              : target === null
+                ? t("yield.targetMissing")
+                : meetsTarget
+                  ? t("yield.good")
+                  : t("yield.low");
+            return <td key={line.id}><span className={value === null || target === null ? "metric-empty" : meetsTarget ? "metric-good" : "metric-low"}>
+              <span className="metric-symbol" aria-hidden="true">{value === null || target === null ? "—" : meetsTarget ? "✓" : "↓"}</span>
+              {result ? formatPercent(result) : "—"}
+              <small>{target === null ? t("yield.targetMissing") : t("yield.targetValue", { value: target.toFixed(1) })}</small>
+              <span className="sr-only"> — {status}</span>
+            </span></td>;
           })}
         </tr>)}</tbody>
       </table>

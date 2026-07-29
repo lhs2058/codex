@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { MasterDataSnapshot } from "../../src/domain/types";
 import { parseStandardWorkbook } from "../../src/excel/adapters/standard-adapter";
 import {
+  DEFECT_HEADERS,
   PRODUCTION_HEADERS,
   buildStandardTemplate,
 } from "../../src/excel/template";
@@ -50,6 +51,7 @@ describe("standard workbook template", () => {
     expect(template.data[0][0][0]).toMatchObject({ value: "SMD_STANDARD_V1" });
     expect(template.data[0][1].map((cell) => cell?.value)).toEqual(PRODUCTION_HEADERS);
     expect(template.data[0][2][0]).toMatchObject({ type: Date, format: "yyyy-mm-dd" });
+    expect(template.data[1][0].map((cell) => cell?.value)).toEqual(DEFECT_HEADERS);
     for (const column of [6, 7, 8, 9, 10]) {
       expect(template.data[0][2][column]).toMatchObject({ type: Number, format: "#,##0" });
     }
@@ -63,7 +65,21 @@ describe("standard workbook template", () => {
 
   it("produces a real readable XLSX with typed metadata and no formula error values", async () => {
     const template = buildStandardTemplate(masterData, new Date(2026, 0, 2));
-    const buffer = await writeXlsxFile(template.data, { ...template.options, sheets: template.sheets, buffer: true });
+    const {
+      columns,
+      fontFamily,
+      fontSize,
+      ...sheetOptions
+    } = template.options;
+    const buffer = await writeXlsxFile(
+      template.data.map((data, index) => ({
+        ...sheetOptions,
+        data,
+        sheet: template.sheets[index],
+        columns: columns[index],
+      })),
+      { fontFamily, fontSize },
+    ).toBuffer();
 
     await expect(readSheetNames(buffer)).resolves.toEqual(["Production", "Defects", "Reference"]);
     const production = await readXlsxFile(buffer, { sheet: "Production" });
@@ -105,6 +121,82 @@ describe("standard workbook template", () => {
       sourceRow: 4,
       code: "invalid-count",
     }));
+  });
+
+  it("parses exact Defects rows, links them to a quality row, and preserves typed source trace", () => {
+    const result = parseStandardWorkbook([
+      {
+        sheet: "Production",
+        data: [
+          ["SMD_STANDARD_V1"],
+          PRODUCTION_HEADERS,
+          [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 10, 9, 8, 2, 0, null, "quality"],
+        ],
+      },
+      {
+        sheet: "Defects",
+        data: [
+          DEFECT_HEADERS,
+          [3, "Short", "real", 1],
+          [3, "False call", "pseudo", 1],
+        ],
+      },
+      referenceSheet(),
+    ]);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.rows[0]).toMatchObject({
+      dimensions: {
+        production: { inputQty: 10, actualQty: 9 },
+        quality: { inputQty: 10, okQty: 8, ngQty: 2 },
+      },
+      defects: [
+        {
+          sourceSheet: "Defects",
+          sourceRow: 2,
+          productionSourceRow: 3,
+          defectType: "Short",
+          classification: "real",
+          quantity: 1,
+        },
+        {
+          sourceSheet: "Defects",
+          sourceRow: 3,
+          productionSourceRow: 3,
+          defectType: "False call",
+          classification: "pseudo",
+          quantity: 1,
+        },
+      ],
+    });
+  });
+
+  it.each([
+    ["wrong headers", [["Production Row", "Type", "Classification", "Quantity"], [3, "Short", "real", 1]], "headers"],
+    ["orphan link", [DEFECT_HEADERS, [99, "Short", "real", 1]], "productionRow"],
+    ["invalid classification", [DEFECT_HEADERS, [3, "Short", "unknown", 1]], "classification"],
+    ["non-positive quantity", [DEFECT_HEADERS, [3, "Short", "real", 0]], "quantity"],
+    ["formula injection", [DEFECT_HEADERS, [3, "=HYPERLINK(\"bad\")", "real", 1]], "defectType"],
+    ["duplicate defect", [DEFECT_HEADERS, [3, "Short", "real", 1], [3, " short ", "real", 1]], "duplicate"],
+  ] as const)("rejects Defects %s without silently dropping the sheet", (_caseName, defectData, field) => {
+    const result = parseStandardWorkbook([
+      {
+        sheet: "Production",
+        data: [
+          ["SMD_STANDARD_V1"],
+          PRODUCTION_HEADERS,
+          [new Date(2026, 6, 28), "DAY", "A", "LINE-1", "MODEL-A", "AOI", 10, 9, 8, 2, 0, null, ""],
+        ],
+      },
+      { sheet: "Defects", data: defectData as unknown[][] },
+      referenceSheet(),
+    ]);
+
+    expect(result.diagnostics).toContainEqual(expect.objectContaining({
+      sourceSheet: "Defects",
+      field,
+    }));
+    expect(result.rows.flatMap((row) => row.defects)).toEqual([]);
   });
 
   it("rejects template versions other than 1 before parsing data", () => {

@@ -1,4 +1,5 @@
 import type { ImportParseResult, WorkbookSheet } from "../contracts";
+import { qualityOnlyRow } from "../import-row";
 import { normalizeLineName, normalizeProductionDate, normalizeQuantity } from "../normalize";
 
 type QualityKind = "aoi" | "spi" | "ict" | "xray";
@@ -12,9 +13,14 @@ const folded = (value: unknown) => String(value ?? "")
   .trim();
 const label = (value: unknown) => folded(value).replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 const present = (value: unknown) => value !== null && value !== undefined && String(value).trim() !== "";
+const missingCount = (value: unknown) =>
+  !present(value) || /^-+$|^#(?:div\/0!|n\/a|value!|ref!|name\?|num!|null!)$/i.test(String(value).trim());
 const boundary = (value: unknown) => /\b(total|ttl|section|header)\b|tong|합계/i.test(folded(value));
 const column = (row: unknown[], predicate: (value: string) => boolean) =>
   row.findIndex((cell) => predicate(label(cell)));
+const productionDate = (value: unknown) => {
+  try { return normalizeProductionDate(value, 2026); } catch { return null; }
+};
 
 export function parseHeaderQualityWorkbook(
   sheets: WorkbookSheet[],
@@ -73,25 +79,39 @@ export function parseHeaderQualityWorkbook(
       || (!constantLine && lineColumn < 0)) continue;
 
     matchedLayouts += 1;
-    let lastDate: unknown = null;
+    let lastDate: string | null = null;
+    let hasSeenDate = false;
     let lastShift: unknown = "DAY";
     let lastLine: unknown = constantLine;
     let lastModel: unknown = null;
     for (let index = headerRow + 1; index < sheet.data.length; index += 1) {
       const source = sheet.data[index] ?? [];
-      const shiftBoundary = boundary(source[shiftColumn]);
-      if ([source[dateColumn], source[lineColumn], source[modelColumn]].some(boundary)
-        || (shiftBoundary && !present(source[modelColumn]))) {
+      if (source.some((value, sourceColumn) => sourceColumn !== dateColumn && value instanceof Date)) {
         lastDate = null;
         lastModel = null;
         continue;
       }
-      if (present(source[dateColumn])) lastDate = source[dateColumn];
+      const shiftBoundary = boundary(source[shiftColumn]);
+      if (boundary(source[dateColumn]) || (shiftBoundary && !present(source[modelColumn]))) {
+        lastDate = null;
+        lastModel = null;
+        continue;
+      }
+      if (boundary(source[lineColumn]) || boundary(source[modelColumn])) {
+        lastModel = null;
+        continue;
+      }
+      const explicitDate = productionDate(source[dateColumn]);
+      if (explicitDate) {
+        lastDate = explicitDate;
+        hasSeenDate = true;
+      }
       if (shiftColumn >= 0 && present(source[shiftColumn])) lastShift = source[shiftColumn];
       if (lineColumn >= 0 && present(source[lineColumn])) lastLine = source[lineColumn];
       if (present(source[modelColumn])) lastModel = source[modelColumn];
-      const dataCandidate = present(source[inputColumn]) || present(source[okColumn]);
-      if (!dataCandidate) continue;
+      if (missingCount(source[inputColumn]) || missingCount(source[okColumn])) continue;
+      if (!lastDate && !hasSeenDate) continue;
+      if (!lastDate) continue;
       if (!lastDate || !lastLine || !lastModel) {
         diagnostics.push({
           sourceSheet: sheet.sheet,
@@ -106,10 +126,10 @@ export function parseHeaderQualityWorkbook(
         const inputQty = normalizeQuantity(source[inputColumn], "inputQty");
         const okQty = normalizeQuantity(source[okColumn], "okQty");
         if (okQty > inputQty) throw new Error("okQty");
-        rows.push({
+        rows.push(qualityOnlyRow({
           sourceSheet: sheet.sheet,
           sourceRow: index + 1,
-          productionDate: normalizeProductionDate(lastDate, 2026),
+          productionDate: lastDate,
           shiftCode: String(lastShift || "DAY"),
           timeSlotCode: timeColumn >= 0 && /^[A-E]$/.test(String(source[timeColumn] ?? ""))
             ? String(source[timeColumn]) as "A" | "B" | "C" | "D" | "E"
@@ -118,13 +138,13 @@ export function parseHeaderQualityWorkbook(
           modelCode: String(lastModel).trim(),
           processCode: options.processCode,
           inputQty,
-          actualQty: okQty,
+          actualQty: 0,
           okQty,
           ngQty: inputQty - okQty,
           downtimeMinutes: 0,
           downtimeReasonCode: null,
           note: "",
-        });
+        }));
       } catch (error) {
         diagnostics.push({
           sourceSheet: sheet.sheet,

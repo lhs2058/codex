@@ -15,6 +15,21 @@ describe("workbook detection", () => {
     expect(detectWorkbook([legacySheet])).toEqual({ kind, diagnostics: [] });
   });
 
+  it.each([
+    ["aoi", "aoi model", "Data Theo Dõi Hiệu Suất Máy AOI công đoạn SMD", "Ouput"],
+    ["spi", "SPI MODEL.", "Data Theo Dõi Hiệu Suất Máy SPI công đoạn SMD", "Ouput"],
+    ["ict", "ICT.", "Data Theo Dõi Hiệu Suất công đoạn ICT", "OK"],
+    ["xray", "Xray", "Data Theo Dõi Hiệu Suất công đoạn XRAY", "OK"],
+  ] as const)("detects the preserved %s multi-row title/header layout", (kind, name, title, okHeader) => {
+    const actualLayout = sheet(name, [
+      [],
+      [null, title],
+      [null, null, "Ngày", "Ca", "Model", null, "Time", "Input", okHeader, null, null, null, "NG"],
+    ]);
+
+    expect(detectWorkbook([actualLayout])).toEqual({ kind, diagnostics: [] });
+  });
+
   it("detects the standard workbook ahead of legacy signatures when version and headers match", () => {
     const standard = sheet("Production", [
       ["SMD_STANDARD_V1"],

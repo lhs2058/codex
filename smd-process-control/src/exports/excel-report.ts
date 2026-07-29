@@ -1,7 +1,8 @@
-import type { Columns, Row, SheetData } from "write-excel-file";
+import type { Row, SheetData } from "write-excel-file/browser";
 import type { AnalysisDataset } from "../domain/types";
 
 type Language = "ko" | "vi";
+type SheetColumns = Array<{ width?: number }>;
 
 const labels = {
   ko: {
@@ -76,7 +77,7 @@ const header = (value: string) => ({
   value,
   type: String,
   fontWeight: "bold" as const,
-  color: "#FFFFFF",
+  textColor: "#FFFFFF",
   backgroundColor: "#1E4E79",
   align: "center" as const,
   height: 26,
@@ -105,13 +106,13 @@ function periodStart(period: string): Date {
   return calendarDate(period);
 }
 
-const widths = (...values: number[]): Columns => values.map((width) => ({ width }));
+const widths = (...values: number[]): SheetColumns => values.map((width) => ({ width }));
 
 export interface AnalysisExcelReport {
   data: SheetData[];
   sheets: ["Summary", "Yield", "Utilization", "Downtime", "Defects"];
   options: {
-    columns: Columns[];
+    columns: SheetColumns[];
     stickyRowsCount: number;
     showGridLines: boolean;
     dateFormat: string;
@@ -135,10 +136,10 @@ export function buildAnalysisExcelReport(
     [{
       value: label.title,
       type: String,
-      span: 2,
+      columnSpan: 2,
       fontWeight: "bold",
       fontSize: 16,
-      color: "#FFFFFF",
+      textColor: "#FFFFFF",
       backgroundColor: "#123A5A",
       align: "left",
       height: 32,
@@ -215,10 +216,20 @@ export function buildAnalysisExcelReport(
 
 export async function downloadAnalysisExcel(dataset: AnalysisDataset, language: Language): Promise<void> {
   const report = buildAnalysisExcelReport(dataset, language);
-  const { default: writeXlsxFile } = await import("write-excel-file");
-  await writeXlsxFile(report.data, {
-    ...report.options,
-    sheets: report.sheets,
-    fileName: analysisReportFilename(dataset, "xlsx"),
-  });
+  const { default: writeXlsxFile } = await import("write-excel-file/browser");
+  const {
+    columns,
+    fontFamily,
+    fontSize,
+    ...sheetOptions
+  } = report.options;
+  await writeXlsxFile(
+    report.data.map((data, index) => ({
+      ...sheetOptions,
+      data,
+      sheet: report.sheets[index],
+      columns: columns[index],
+    })),
+    { fontFamily, fontSize },
+  ).toFile(analysisReportFilename(dataset, "xlsx"));
 }

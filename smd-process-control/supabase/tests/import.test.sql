@@ -61,12 +61,12 @@ select like(
   'upload commits serialize absent natural keys'
 );
 select like(
-  pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),
-  '%sourceSheet%',
-  'upload RPC accepts the camelCase NormalizedImportRow contract'
+  pg_get_functiondef('private.validate_upload_v2_payload(jsonb, text, integer)'::regprocedure),
+  '%contractVersion%',
+  'upload validation requires the versioned NormalizedImportRow contract'
 );
 select unlike(
-  pg_get_functiondef('public.commit_upload_batch(uuid, boolean)'::regprocedure),
+  pg_get_functiondef('private.validate_upload_v2_payload(jsonb, text, integer)'::regprocedure),
   '%model_code%',
   'upload RPC rejects the legacy snake_case payload contract'
 );

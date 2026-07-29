@@ -17,11 +17,6 @@ export const SEED_CONTRACT = Object.freeze({
     downtimeReason: "e2000000-0000-4000-8000-000000000006",
     standardTime: "e2000000-0000-4000-8000-000000000007",
     yieldTarget: "e2000000-0000-4000-8000-000000000008",
-    concurrencyRecord: "e2000000-0000-4000-8000-000000000101",
-    concurrencyQuality: "e2000000-0000-4000-8000-000000000102",
-    concurrencyDowntime: "e2000000-0000-4000-8000-000000000103",
-    reportRecord: "e2000000-0000-4000-8000-000000000201",
-    reportQuality: "e2000000-0000-4000-8000-000000000202",
     operatorLine: "e2000000-0000-4000-8000-000000000301",
     operatorStandardTime: "e2000000-0000-4000-8000-000000000302",
   }),
@@ -52,6 +47,22 @@ export const SEED_CONTRACT = Object.freeze({
     dashboardAfterEditActual: 310,
   }),
 });
+
+export function datedSeedIds(productionDate) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(productionDate)
+    || new Date(`${productionDate}T00:00:00.000Z`).toISOString().slice(0, 10) !== productionDate) {
+    throw new Error("productionDate must be a real ISO date");
+  }
+  const stamp = productionDate.replaceAll("-", "");
+  const id = (suffix) => `e2000000-0000-4000-8000-${stamp}${suffix}`;
+  return Object.freeze({
+    concurrencyRecord: id("0101"),
+    concurrencyQuality: id("0102"),
+    concurrencyDowntime: id("0103"),
+    reportRecord: id("0201"),
+    reportQuality: id("0202"),
+  });
+}
 
 const REQUIRED_ENVIRONMENT = [
   "SUPABASE_URL",
@@ -105,7 +116,7 @@ const cell = (value, type = String) => ({ value, type });
 
 export async function buildDuplicateWorkbookBuffer(productionDate) {
   const production = [
-    [{ ...cell("SMD_STANDARD_V1"), span: PRODUCTION_HEADERS.length }],
+    [{ ...cell("SMD_STANDARD_V1"), columnSpan: PRODUCTION_HEADERS.length }],
     PRODUCTION_HEADERS.map((value) => cell(value)),
     [
       { ...cell(new Date(`${productionDate}T00:00:00.000Z`), Date), format: "yyyy-mm-dd" },
@@ -128,13 +139,15 @@ export async function buildDuplicateWorkbookBuffer(productionDate) {
     [cell("Template Version"), cell(1, Number)],
     [cell("Generated On"), { ...cell(new Date(`${productionDate}T00:00:00.000Z`), Date), format: "yyyy-mm-dd" }],
   ];
-  return writeXlsxFile([production, defects, reference], {
-    sheets: ["Production", "Defects", "Reference"],
-    buffer: true,
-  });
+  return writeXlsxFile([
+    { data: production, sheet: "Production" },
+    { data: defects, sheet: "Defects" },
+    { data: reference, sheet: "Reference" },
+  ]).toBuffer();
 }
 
 export function publicSeedManifest(productionDate, processId) {
+  const datedIds = datedSeedIds(productionDate);
   return {
     contractVersion: 1,
     productionDate,
@@ -143,12 +156,12 @@ export function publicSeedManifest(productionDate, processId) {
       role,
       { employeeId: value.employeeId, email: value.email, role: value.role },
     ])),
-    ids: SEED_CONTRACT.ids,
+    ids: { ...SEED_CONTRACT.ids, ...datedIds },
     codes: SEED_CONTRACT.codes,
     labels: SEED_CONTRACT.labels,
     records: {
-      concurrency: { id: SEED_CONTRACT.ids.concurrencyRecord, ...SEED_CONTRACT.records.concurrency },
-      report: { id: SEED_CONTRACT.ids.reportRecord, ...SEED_CONTRACT.records.report },
+      concurrency: { id: datedIds.concurrencyRecord, ...SEED_CONTRACT.records.concurrency },
+      report: { id: datedIds.reportRecord, ...SEED_CONTRACT.records.report },
       edited: SEED_CONTRACT.records.edited,
       dashboardBaselineActual: SEED_CONTRACT.records.dashboardBaselineActual,
       dashboardAfterEditActual: SEED_CONTRACT.records.dashboardAfterEditActual,

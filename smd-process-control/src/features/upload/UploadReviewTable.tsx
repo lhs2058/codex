@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { UploadReview } from "../../domain/types";
 import { useI18n, type TranslationKey } from "../../i18n";
 
@@ -15,10 +16,14 @@ const legacy: Partial<Record<TranslationKey, string>> = {
   "common.model": "Model",
   "common.process": "Process",
   "common.messages": "Messages",
+  "upload.showMoreRows": "Show more rows",
+  "upload.showingRows": "Showing {shown} of {total} rows",
 };
 
 export function UploadReviewTable({ review }: { review: UploadReview }) {
   const { t } = useI18n(legacy);
+  const [visibleCount, setVisibleCount] = useState(200);
+  const visibleRows = review.rows.slice(0, visibleCount);
   const statusLabel = {
     new: t("upload.statusNew"),
     conflict: t("upload.statusConflict"),
@@ -26,6 +31,10 @@ export function UploadReviewTable({ review }: { review: UploadReview }) {
   } as const;
   return <section aria-label={t("upload.reviewRegion")}>
     <h2>{t("upload.review")}</h2>
+    <p>{t("upload.showingRows", {
+      shown: Math.min(visibleCount, review.rows.length),
+      total: review.rows.length,
+    })}</p>
     <div className="table-scroll" tabIndex={0} role="region" aria-label={t("upload.reviewRegion")}>
     <table className="upload-review-table">
       <thead>
@@ -41,7 +50,7 @@ export function UploadReviewTable({ review }: { review: UploadReview }) {
         </tr>
       </thead>
       <tbody>
-        {review.rows.map((row) => <tr key={`${row.sourceSheet}-${row.sourceRow}`}>
+        {visibleRows.map((row) => <tr key={`${row.sourceSheet}-${row.sourceRow}`}>
           <td>{row.sourceSheet}</td>
           <td>{row.sourceRow}</td>
           <td>{statusLabel[row.status]}</td>
@@ -60,5 +69,11 @@ export function UploadReviewTable({ review }: { review: UploadReview }) {
         </tr>)}
       </tbody>
     </table></div>
+    {visibleCount < review.rows.length && <button
+      type="button"
+      onClick={() => setVisibleCount((current) => current + 200)}
+    >
+      {t("upload.showMoreRows")}
+    </button>}
   </section>;
 }

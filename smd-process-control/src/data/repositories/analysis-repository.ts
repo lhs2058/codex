@@ -19,7 +19,12 @@ import {
   type DashboardQualityFilters,
   type DashboardQualityRecord,
 } from "./quality-repository";
-import { createYieldTargetRepository, type YieldTarget, type YieldTargetRepository } from "./yield-target-repository";
+import {
+  createYieldTargetRepository,
+  weightedYieldTarget,
+  type YieldTarget,
+  type YieldTargetRepository,
+} from "./yield-target-repository";
 import { getSupabaseClient } from "../supabase";
 
 export interface AnalysisRepository {
@@ -119,34 +124,14 @@ function yieldValue(inputQty: number, okQty: number): number | null {
   return metricValue(calculateYield(inputQty, okQty));
 }
 
-function targetFor(
-  row: DatedQuality,
-  targets: YieldTarget[],
-): number | null {
-  const matches = targets
-    .filter((target) =>
-      target.processId === row.row.processId
-      && (target.modelId === null || target.modelId === row.row.modelId)
-      && (target.lineId === null || target.lineId === row.row.lineId)
-      && target.effectiveFrom <= row.date
-      && (target.effectiveTo === null || target.effectiveTo >= row.date))
-    .sort((left, right) =>
-      Number(right.modelId !== null) + Number(right.lineId !== null)
-      - Number(left.modelId !== null) - Number(left.lineId !== null)
-      || right.effectiveFrom.localeCompare(left.effectiveFrom));
-  return matches[0]?.targetPercent ?? null;
-}
-
 function weightedTarget(rows: DatedQuality[], targets: YieldTarget[]): number | null {
-  let quantity = 0;
-  let weighted = 0;
-  for (const row of rows) {
-    const target = targetFor(row, targets);
-    if (target === null) continue;
-    quantity += row.row.inputQty;
-    weighted += row.row.inputQty * target;
-  }
-  return quantity === 0 ? null : weighted / quantity;
+  return weightedYieldTarget(rows.map(({ date, row }) => ({
+    productionDate: date,
+    modelId: row.modelId,
+    processId: row.processId,
+    lineId: row.lineId,
+    inputQty: row.inputQty,
+  })), targets);
 }
 
 function utilizationParts(

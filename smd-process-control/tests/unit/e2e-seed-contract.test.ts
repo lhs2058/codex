@@ -1,4 +1,6 @@
 import readXlsxFile, { readSheetNames } from "read-excel-file/node";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseStandardWorkbook } from "../../src/excel/adapters/standard-adapter";
 import type { WorkbookSheet } from "../../src/excel/contracts";
@@ -6,6 +8,7 @@ import {
   SEED_CONTRACT,
   assertSeedEnvironment,
   buildDuplicateWorkbookBuffer,
+  datedSeedIds,
   publicSeedManifest,
 } from "../../scripts/e2e-seed-contract.mjs";
 
@@ -28,14 +31,14 @@ describe("local E2E seed contract", () => {
     expect(() => assertSeedEnvironment({ ...completeEnvironment, SUPABASE_URL: "http://127.0.0.1:54322" })).toThrow(/local Supabase/);
   });
 
-  it("publishes exact stable IDs and values without exposing credentials", () => {
+  it("publishes exact date-stable IDs and values without exposing credentials", () => {
     const manifest = publicSeedManifest("2026-07-28", "process-id-from-migration");
     expect(manifest).toMatchObject({
       productionDate: "2026-07-28",
       processId: "process-id-from-migration",
       records: {
         concurrency: {
-          id: SEED_CONTRACT.ids.concurrencyRecord,
+          id: datedSeedIds("2026-07-28").concurrencyRecord,
           version: 3,
           actualQty: 100,
         },
@@ -44,6 +47,8 @@ describe("local E2E seed contract", () => {
       },
     });
     expect(JSON.stringify(manifest)).not.toMatch(/password|service.role|secret/i);
+    expect(datedSeedIds("2026-07-28")).toEqual(datedSeedIds("2026-07-28"));
+    expect(datedSeedIds("2026-07-29")).not.toEqual(datedSeedIds("2026-07-28"));
   });
 
   it("generates a real standard workbook containing the exact seeded report duplicate key", async () => {
@@ -69,5 +74,19 @@ describe("local E2E seed contract", () => {
       okQty: 198,
       ngQty: 2,
     })]);
+  });
+
+  it("reconciles a second run through stable upserts and recoverable soft retirement only", async () => {
+    const source = await readFile(path.resolve(process.cwd(), "scripts/seed-e2e.mjs"), "utf8");
+    expect(source).not.toMatch(/\.delete\s*\(/);
+    expect(source).toContain("softRetire");
+    expect(source).toContain("datedSeedIds(productionDate)");
+    expect(source.match(/onConflict:\s*\"id\"/g)?.length).toBeGreaterThanOrEqual(8);
+    expect(source).toMatch(/upsert quality records[\s\S]*shift_id: SEED_CONTRACT\.ids\.shift[\s\S]*time_slot_id: SEED_CONTRACT\.ids\.concurrencySlot/);
+    expect(source.match(/deleted_by: null/g)?.length).toBeGreaterThanOrEqual(5);
+    expect(source.match(/\.eq\("production_date", productionDate\)/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(publicSeedManifest("2026-07-28", "process-a")).toEqual(
+      publicSeedManifest("2026-07-28", "process-a"),
+    );
   });
 });

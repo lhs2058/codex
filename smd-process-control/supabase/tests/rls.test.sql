@@ -214,8 +214,8 @@ select throws_ok(
   '42501', 'clients cannot forge a committed upload batch'
 );
 select throws_ok(
-  $$insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, production_record_id, created_by, updated_by)
-    select '00000000-0000-0000-0000-000000000206', 'Production', 2, '{}'::jsonb, 'new', id, auth.uid(), auth.uid()
+  $$insert into public.upload_rows (batch_id, source_sheet, source_row, row_kind, payload, status, production_record_id, created_by, updated_by)
+    select '00000000-0000-0000-0000-000000000206', 'Production', 2, 'production', '{}'::jsonb, 'new', id, auth.uid(), auth.uid()
     from public.production_records where created_by = auth.uid() limit 1$$,
   '42501', 'clients cannot forge a staged row target record'
 );
@@ -231,11 +231,12 @@ select is(
   'vi',
   'admin updates their own language through the self-service RPC'
 );
-select lives_ok(
+select throws_ok(
   $$update public.profiles
     set display_name = 'Viewer managed by admin'
     where id = '00000000-0000-0000-0000-000000000101'$$,
-  'existing admin profile writes remain available'
+  '42501',
+  'admin profile writes are restricted to hardened RPCs'
 );
 select ok(
   (snapshot -> 'models') @> '[{"code":"HIST-MODEL","is_active":false}]'::jsonb
@@ -248,19 +249,26 @@ select ok(
   'admin reads inactive historical labels, slots, reasons, and standard times through the RPC'
 )
 from (select public.list_historical_master_data() snapshot) history;
-select lives_ok(
+select throws_ok(
   $$insert into public.models(code, name) values ('PE-37', 'PE-37')$$,
-  'admin can write master data'
+  '42501',
+  'admin master writes are restricted to hardened RPCs'
 );
 insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
 values ('00000000-0000-0000-0000-000000000207', 'camel.xlsx', 'test/camel.xlsx', 'standard', auth.uid(), auth.uid());
-insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, created_by, updated_by)
+insert into public.upload_rows (batch_id, source_sheet, source_row, row_kind, payload, status, created_by, updated_by)
 values ('00000000-0000-0000-0000-000000000207', 'Production', 2,
-  jsonb_build_object('sourceSheet','Production','sourceRow',2,'productionDate',(now() at time zone 'Asia/Bangkok')::date,
-    'shiftCode','TEST-SHIFT','timeSlotCode','TEST-SLOT','lineCode','TEST-LINE-2','modelCode','TEST-MODEL','processCode','SPI',
-    'inputQty',2,'actualQty',2,'okQty',2,'ngQty',0,'downtimeMinutes',0,'downtimeReasonCode',null,'note','camel'),
+  'production',
+  jsonb_build_object(
+    'contractVersion',2,'defects','[]'::jsonb,'downtime',null,
+    'lineCode','TEST-LINE-2','modelCode','TEST-MODEL','note','camel','processCode','SPI',
+    'production',jsonb_build_object('inputQty',2,'actualQty',2),
+    'productionDate',(now() at time zone 'Asia/Bangkok')::date,
+    'quality',jsonb_build_object('inputQty',2,'okQty',2,'ngQty',0),
+    'shiftCode','TEST-SHIFT','sourceTrace',jsonb_build_object('sheet','Production','row',2),
+    'timeSlotCode','TEST-SLOT','warnings','[]'::jsonb),
   'new', auth.uid(), auth.uid());
-select lives_ok($$select public.commit_upload_batch('00000000-0000-0000-0000-000000000207', false)$$, 'exact camelCase normalized payload commits');
+select lives_ok($$select public.commit_upload_batch('00000000-0000-0000-0000-000000000207', false)$$, 'exact V2 normalized payload commits');
 select ok(
   exists (select 1 from public.audit_logs where actor_id = auth.uid() and table_name = 'production_records' and action = 'insert' and after_data ? 'input_qty'),
   'audit records actor, action, and after data for committed production'
@@ -279,31 +287,69 @@ set local role authenticated;
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000103', true);
 insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
 values ('00000000-0000-0000-0000-000000000210', 'replace-zero.xlsx', 'test/replace-zero.xlsx', 'standard', auth.uid(), auth.uid());
-insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, created_by, updated_by)
-values ('00000000-0000-0000-0000-000000000210', 'Production', 4,
-  jsonb_build_object('sourceSheet','Production','sourceRow',4,'productionDate',(now() at time zone 'Asia/Bangkok')::date,
-    'shiftCode','TEST-SHIFT','timeSlotCode','TEST-SLOT','lineCode','TEST-LINE-2','modelCode','TEST-MODEL','processCode','SPI',
-    'inputQty',4,'actualQty',4,'okQty',3,'ngQty',1,'downtimeMinutes',0,'downtimeReasonCode',null,'note','replace zero'),
-  'conflict', auth.uid(), auth.uid());
+insert into public.upload_rows (
+  batch_id, source_sheet, source_row, row_kind, payload, status,
+  target_record_id, expected_target_version, created_by, updated_by
+)
+values ('00000000-0000-0000-0000-000000000210', 'Production', 4, 'production',
+  jsonb_build_object(
+    'contractVersion',2,'defects','[]'::jsonb,'downtime',null,
+    'lineCode','TEST-LINE-2','modelCode','TEST-MODEL','note','replace zero','processCode','SPI',
+    'production',jsonb_build_object('inputQty',4,'actualQty',4),
+    'productionDate',(now() at time zone 'Asia/Bangkok')::date,
+    'quality',jsonb_build_object('inputQty',4,'okQty',3,'ngQty',1),
+    'shiftCode','TEST-SHIFT','sourceTrace',jsonb_build_object('sheet','Production','row',4),
+    'timeSlotCode','TEST-SLOT','warnings','[]'::jsonb),
+  'conflict',
+  (select id from public.production_records
+   where line_id='00000000-0000-0000-0000-000000000205' and deleted_at is null),
+  (select version from public.production_records
+   where line_id='00000000-0000-0000-0000-000000000205' and deleted_at is null),
+  auth.uid(), auth.uid());
 select lives_ok($$select public.commit_upload_batch('00000000-0000-0000-0000-000000000210', true)$$, 'admin replaces a conflicting normalized row');
 select is((select count(*)::integer from public.quality_records q join public.production_records p on p.id=q.production_record_id where p.line_id='00000000-0000-0000-0000-000000000205' and q.deleted_at is null), 1, 'replacement leaves exactly one active quality record');
 select is((select count(*)::integer from public.downtime_records d join public.production_records p on p.id=d.production_record_id where p.line_id='00000000-0000-0000-0000-000000000205' and d.deleted_at is null), 0, 'zero incoming downtime retires all active downtime');
 select is((select count(*)::integer from public.defect_records d join public.quality_records q on q.id=d.quality_record_id join public.production_records p on p.id=q.production_record_id where p.line_id='00000000-0000-0000-0000-000000000205' and d.deleted_at is not null), 1, 'replacement retires defects attached to retired quality');
 insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
 values ('00000000-0000-0000-0000-000000000211', 'replace-downtime.xlsx', 'test/replace-downtime.xlsx', 'standard', auth.uid(), auth.uid());
-insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, created_by, updated_by)
-values ('00000000-0000-0000-0000-000000000211', 'Production', 5,
-  jsonb_build_object('sourceSheet','Production','sourceRow',5,'productionDate',(now() at time zone 'Asia/Bangkok')::date,
-    'shiftCode','TEST-SHIFT','timeSlotCode','TEST-SLOT','lineCode','TEST-LINE-2','modelCode','TEST-MODEL','processCode','SPI',
-    'inputQty',4,'actualQty',4,'okQty',4,'ngQty',0,'downtimeMinutes',3,'downtimeReasonCode','TEST-DT','note','replace downtime'),
-  'conflict', auth.uid(), auth.uid());
+insert into public.upload_rows (
+  batch_id, source_sheet, source_row, row_kind, payload, status,
+  target_record_id, expected_target_version, created_by, updated_by
+)
+values ('00000000-0000-0000-0000-000000000211', 'Production', 5, 'production',
+  jsonb_build_object(
+    'contractVersion',2,'defects','[]'::jsonb,
+    'downtime',jsonb_build_object('minutes',3,'reasonCode','TEST-DT'),
+    'lineCode','TEST-LINE-2','modelCode','TEST-MODEL','note','replace downtime','processCode','SPI',
+    'production',jsonb_build_object('inputQty',4,'actualQty',4),
+    'productionDate',(now() at time zone 'Asia/Bangkok')::date,
+    'quality',jsonb_build_object('inputQty',4,'okQty',4,'ngQty',0),
+    'shiftCode','TEST-SHIFT','sourceTrace',jsonb_build_object('sheet','Production','row',5),
+    'timeSlotCode','TEST-SLOT','warnings','[]'::jsonb),
+  'conflict',
+  (select id from public.production_records
+   where line_id='00000000-0000-0000-0000-000000000205' and deleted_at is null),
+  (select version from public.production_records
+   where line_id='00000000-0000-0000-0000-000000000205' and deleted_at is null),
+  auth.uid(), auth.uid());
 select lives_ok($$select public.commit_upload_batch('00000000-0000-0000-0000-000000000211', true)$$, 'admin replaces conflict with downtime');
 select is((select count(*)::integer from public.downtime_records d join public.production_records p on p.id=d.production_record_id where p.line_id='00000000-0000-0000-0000-000000000205' and d.deleted_at is null), 1, 'nonzero replacement leaves exactly one active downtime record');
 insert into public.upload_batches (id, source_file_name, storage_path, workbook_kind, created_by, updated_by)
 values ('00000000-0000-0000-0000-000000000208', 'snake.xlsx', 'test/snake.xlsx', 'standard', auth.uid(), auth.uid());
-insert into public.upload_rows (batch_id, source_sheet, source_row, payload, status, created_by, updated_by)
-values ('00000000-0000-0000-0000-000000000208', 'Production', 3, jsonb_build_object('source_sheet','Production'), 'new', auth.uid(), auth.uid());
-select throws_ok($$select public.commit_upload_batch('00000000-0000-0000-0000-000000000208', false)$$, '22023', 'upload_batch_has_errors', 'snake_case or unknown payload keys are rejected');
+select throws_ok(
+  $$insert into public.upload_rows (
+      batch_id, source_sheet, source_row, row_kind, payload, status,
+      created_by, updated_by
+    )
+    values (
+      '00000000-0000-0000-0000-000000000208', 'Production', 3,
+      'production', jsonb_build_object('source_sheet','Production'), 'new',
+      auth.uid(), auth.uid()
+    )$$,
+  '22023',
+  'upload_batch_has_errors',
+  'snake_case or unknown payload keys are rejected'
+);
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-000000000102', true);
 select is_empty(

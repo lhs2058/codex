@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { corsHeaders, readBoundedJson, rollbackCreatedUser } from "../../supabase/functions/admin-create-user/helpers";
+import {
+  buildProfileCreationRpcArgs,
+  corsHeaders,
+  readBoundedJson,
+  rollbackCreatedUser,
+} from "../../supabase/functions/admin-create-user/helpers";
 
 describe("admin-create-user Edge Function helpers", () => {
   it("includes Supabase invocation headers in CORS", () => {
@@ -18,5 +23,29 @@ describe("admin-create-user Edge Function helpers", () => {
     expect(result).toBe("cleanup_failed");
     expect(updateUserById).toHaveBeenCalledWith("new-user", { ban_duration: "876000h" });
     expect(log).toHaveBeenCalledWith(expect.objectContaining({ event: "admin_create_user_cleanup_failed", userId: "new-user", correlationId: "trace-1" }));
+  });
+
+  it("propagates only the verified caller as audit actor and ignores a spoofed body actor", () => {
+    const args = buildProfileCreationRpcArgs(
+      "verified-admin",
+      "new-user",
+      {
+        employeeId: "1234",
+        displayName: "New User",
+        role: "operator",
+        temporaryPassword: "not-forwarded",
+        actorId: "spoofed-admin",
+      },
+    );
+
+    expect(args).toEqual({
+      p_profile_id: "new-user",
+      p_employee_id: "1234",
+      p_display_name: "New User",
+      p_role: "operator",
+      p_actor_id: "verified-admin",
+    });
+    expect(JSON.stringify(args)).not.toContain("spoofed-admin");
+    expect(JSON.stringify(args)).not.toContain("not-forwarded");
   });
 });

@@ -2,17 +2,20 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import readXlsxFile from "read-excel-file/node";
-import { describe, expect, it } from "vitest";
-import { parseAoiWorkbook } from "../../src/excel/adapters/aoi-adapter";
-import { parseIctWorkbook } from "../../src/excel/adapters/ict-adapter";
-import { parseProductionWorkbook } from "../../src/excel/adapters/production-adapter";
-import { parseSpiWorkbook } from "../../src/excel/adapters/spi-adapter";
-import { parseXrayWorkbook } from "../../src/excel/adapters/xray-adapter";
-import type { ImportParseResult, WorkbookSheet } from "../../src/excel/contracts";
+import { describe, expect, it, vi } from "vitest";
+import type { MasterDataSnapshot, ProcessCode, WorkbookKind } from "../../src/domain/types";
+import {
+  createUploadRepository,
+  parseDetectedWorkbook,
+  type UploadRepositoryClient,
+} from "../../src/data/repositories/upload-repository";
+import type { NormalizedImportRow, WorkbookSheet } from "../../src/excel/contracts";
+import { detectWorkbook } from "../../src/excel/detect-workbook";
 
 type Representative = {
   fileNameHash: string;
-  parse(sheets: WorkbookSheet[]): ImportParseResult;
+  contentHash: string;
+  kind: Exclude<WorkbookKind, "standard" | "unknown">;
   sourceSheet: string;
   sourceRow: number;
   timeSlotCode: string | null;
@@ -28,51 +31,56 @@ const hash = (value: string) =>
 const representatives: Representative[] = [
   {
     fileNameHash: "64859e73b980",
-    parse: parseAoiWorkbook,
+    contentHash: "b6b972f784d0dce2",
+    kind: "aoi",
     sourceSheet: "aoi model",
     sourceRow: 43,
     timeSlotCode: null,
     productionDate: "2026-07-01",
     lineHash: "5907689dd92e",
     modelHash: "bea79b31a1e3",
-    quantities: { inputQty: 17629, actualQty: 17610, okQty: 17610, ngQty: 19 },
+    quantities: { inputQty: 17629, actualQty: 0, okQty: 17610, ngQty: 19 },
   },
   {
     fileNameHash: "0a1a76cc6379",
-    parse: parseSpiWorkbook,
+    contentHash: "b1a7ff34e021d9da",
+    kind: "spi",
     sourceSheet: "SPI MODEL.",
     sourceRow: 48,
     timeSlotCode: null,
     productionDate: "2026-07-01",
     lineHash: "5907689dd92e",
     modelHash: "bea79b31a1e3",
-    quantities: { inputQty: 17615, actualQty: 17610, okQty: 17610, ngQty: 5 },
+    quantities: { inputQty: 17615, actualQty: 0, okQty: 17610, ngQty: 5 },
   },
   {
     fileNameHash: "31a742eed8cb",
-    parse: parseIctWorkbook,
+    contentHash: "ae18cdfa6724be65",
+    kind: "ict",
     sourceSheet: "ICT.",
     sourceRow: 12,
     timeSlotCode: null,
     productionDate: "2026-07-01",
     lineHash: "5907689dd92e",
     modelHash: "42365ea1c7b0",
-    quantities: { inputQty: 4756, actualQty: 4708, okQty: 4708, ngQty: 48 },
+    quantities: { inputQty: 4756, actualQty: 0, okQty: 4708, ngQty: 48 },
   },
   {
     fileNameHash: "2eb9f7de29d8",
-    parse: parseXrayWorkbook,
+    contentHash: "585a4d5647bc00fe",
+    kind: "xray",
     sourceSheet: "Xray",
     sourceRow: 19,
     timeSlotCode: null,
     productionDate: "2026-07-01",
     lineHash: "775fea3acb6c",
     modelHash: "0ad240e66027",
-    quantities: { inputQty: 10850, actualQty: 10850, okQty: 10850, ngQty: 0 },
+    quantities: { inputQty: 10850, actualQty: 0, okQty: 10850, ngQty: 0 },
   },
   {
     fileNameHash: "64e74a99b3a2",
-    parse: parseProductionWorkbook,
+    contentHash: "f4cda2c1efeef78d",
+    kind: "production",
     sourceSheet: "25.07",
     sourceRow: 7,
     timeSlotCode: "A",
@@ -92,8 +100,78 @@ async function readWorkbook(file: string): Promise<WorkbookSheet[]> {
   })));
 }
 
+function registeredMasters(rows: NormalizedImportRow[]): MasterDataSnapshot {
+  const unique = <T,>(values: T[]) => [...new Set(values)];
+  const models = unique(rows.map((row) => row.modelCode)).map((code, index) => ({
+    id: `model-${index}`,
+    code,
+    name: code,
+    active: true,
+    version: 1,
+  }));
+  const lines = unique(rows.map((row) => row.lineCode)).map((code, index) => ({
+    id: `line-${index}`,
+    code,
+    name: code,
+    active: true,
+  }));
+  const processes = unique(rows.map((row) => row.processCode)).map((code, index) => ({
+    id: `process-${index}`,
+    code: code as ProcessCode,
+    name: code,
+    active: true,
+  }));
+  const shifts = unique(rows.map((row) => row.shiftCode)).map((code, index) => ({
+    id: `shift-${index}`,
+    code,
+    name: code,
+    active: true,
+  }));
+  const timeSlots = unique(rows.flatMap((row) => row.timeSlotCode ? [`${row.shiftCode}|${row.timeSlotCode}`] : []))
+    .map((key, index) => {
+      const [shiftCode, code] = key.split("|");
+      return {
+        id: `slot-${index}`,
+        shiftId: shifts.find((shift) => shift.code === shiftCode)!.id,
+        code: code!,
+        startsAt: "00:00",
+        endsAt: "01:00",
+        endDayOffset: 0 as const,
+        sequence: index + 1,
+      };
+    });
+  return {
+    models,
+    lines,
+    processes,
+    shifts,
+    timeSlots,
+    downtimeReasons: [{
+      id: "legacy-unspecified",
+      code: "LEGACY_UNSPECIFIED",
+      name: "Legacy unspecified",
+      active: true,
+      version: 1,
+    }],
+    standardTimes: [],
+  };
+}
+
+function stagingClient(batchId: string): UploadRepositoryClient {
+  return {
+    auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "reconciliation-user" } }, error: null }) },
+    storage: { from: () => ({ upload: vi.fn().mockResolvedValue({ data: { path: `${batchId}.xlsx` }, error: null }) }) },
+    from: vi.fn((table: string) => ({
+      insert: table === "upload_batches"
+        ? () => ({ select: () => ({ single: async () => ({ data: { id: batchId }, error: null }) }) })
+        : vi.fn().mockResolvedValue({ data: null, error: null }),
+    })) as UploadRepositoryClient["from"],
+    rpc: vi.fn(),
+  };
+}
+
 describe("preserved source workbook reconciliation", () => {
-  it("matches one anonymized date/model/line quantity record in each of the five read-only originals", async () => {
+  it("detects, normally dispatches, and normally stages all five read-only originals", async () => {
     const sourceDirectory = process.env.SMD_SOURCE_WORKBOOK_DIR;
     expect(
       sourceDirectory,
@@ -103,11 +181,26 @@ describe("preserved source workbook reconciliation", () => {
     const entries = await fs.readdir(sourceDirectory!);
     expect(entries.filter((name) => name.toLowerCase().endsWith(".xlsx"))).toHaveLength(5);
     const byHash = new Map(entries.map((name) => [hash(name), path.join(sourceDirectory!, name)]));
+    const counts: Array<{
+      kind: string;
+      parsed: number;
+      stagedNew: number;
+      stagedRowErrors: number;
+      diagnosticErrors: number;
+    }> = [];
 
     for (const expected of representatives) {
       const sourceFile = byHash.get(expected.fileNameHash);
       expect(sourceFile, `missing preserved source workbook ${expected.fileNameHash}`).toBeDefined();
-      const result = expected.parse(await readWorkbook(sourceFile!));
+      const bytesBefore = await fs.readFile(sourceFile!);
+      expect(hash(bytesBefore.toString("base64"))).not.toBe("");
+      expect(crypto.createHash("sha256").update(bytesBefore).digest("hex").slice(0, 16)).toBe(expected.contentHash);
+      const sheets = await readWorkbook(sourceFile!);
+      expect(detectWorkbook(sheets)).toEqual({ kind: expected.kind, diagnostics: [] });
+      const result = parseDetectedWorkbook(sheets);
+      expect(result.kind).toBe(expected.kind);
+      expect(result.diagnostics.every((diagnostic) =>
+        diagnostic.sourceSheet.length > 0 && diagnostic.sourceRow > 0)).toBe(true);
       const row = result.rows.find((candidate) =>
         candidate.sourceSheet === expected.sourceSheet
         && candidate.sourceRow === expected.sourceRow
@@ -127,6 +220,50 @@ describe("preserved source workbook reconciliation", () => {
         modelHash: expected.modelHash,
         ...expected.quantities,
       });
+
+      const repository = createUploadRepository(stagingClient(`${expected.fileNameHash}-batch`), {
+        createId: () => expected.fileNameHash,
+        readWorkbook: async () => sheets,
+        listMasterData: async () => registeredMasters(result.rows),
+        findExisting: async () => null,
+      });
+      const review = await repository.stageUpload(new File([bytesBefore], `${expected.fileNameHash}.xlsx`));
+      expect(review.conflictCount).toBe(0);
+      expect(review.unknownMasterDataCount).toBe(0);
+      expect(review).toMatchObject({ newCount: result.rows.length, errorCount: 0 });
+      expect(review.rows).toHaveLength(result.rows.length);
+      const stagedRowErrors = review.rows.filter((candidate) => candidate.status === "error").length;
+      expect(review.newCount + stagedRowErrors).toBe(result.rows.length);
+      expect(review.rows.filter((candidate) => candidate.status === "error").every((candidate) =>
+        candidate.messages.includes("Duplicate record in workbook"))).toBe(true);
+      counts.push({
+        kind: expected.kind,
+        parsed: result.rows.length,
+        stagedNew: review.newCount,
+        stagedRowErrors,
+        diagnosticErrors: review.diagnostics.length,
+      });
+      if (expected.kind === "production") {
+        expect(result.diagnostics).toEqual([]);
+        expect(result.rows).toHaveLength(14_708);
+        expect(review).toMatchObject({ newCount: 14_708, errorCount: 0 });
+        expect(review.rows.every((candidate) =>
+          candidate.downtimeMinutes === 0
+          || candidate.downtimeReasonCode === "LEGACY_UNSPECIFIED")).toBe(true);
+      } else {
+        expect(review.rows.every((candidate) =>
+          candidate.dimensions.production === null
+          && candidate.actualQty === 0)).toBe(true);
+      }
+      const bytesAfter = await fs.readFile(sourceFile!);
+      expect(crypto.createHash("sha256").update(bytesAfter).digest("hex").slice(0, 16)).toBe(expected.contentHash);
     }
+    expect(counts).toEqual([
+      { kind: "aoi", parsed: 239, stagedNew: 239, stagedRowErrors: 0, diagnosticErrors: 0 },
+      { kind: "spi", parsed: 271, stagedNew: 271, stagedRowErrors: 0, diagnosticErrors: 0 },
+      { kind: "ict", parsed: 90, stagedNew: 90, stagedRowErrors: 0, diagnosticErrors: 0 },
+      { kind: "xray", parsed: 262, stagedNew: 262, stagedRowErrors: 0, diagnosticErrors: 0 },
+      { kind: "production", parsed: 14_708, stagedNew: 14_708, stagedRowErrors: 0, diagnosticErrors: 0 },
+    ]);
   }, 120_000);
 });

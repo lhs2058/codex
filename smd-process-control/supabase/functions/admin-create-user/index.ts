@@ -1,5 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
-import { corsHeaders, readBoundedJson, rollbackCreatedUser } from "./helpers.ts";
+import {
+  buildProfileCreationRpcArgs,
+  corsHeaders,
+  readBoundedJson,
+  rollbackCreatedUser,
+} from "./helpers.ts";
 
 const employeeIdPattern = /^\d{4,12}$/;
 const validRoles = new Set(["operator", "admin", "viewer"]);
@@ -41,7 +46,14 @@ Deno.serve(async (request) => {
   const employeeId = parsed.value.employeeId.trim();
   const { data: created, error: createError } = await adminClient.auth.admin.createUser({ email: `${employeeId}@smd.internal`, password: parsed.value.temporaryPassword, email_confirm: true });
   if (createError || !created.user) return response(409, { error: "user_creation_failed" });
-  const { error: profileError } = await adminClient.from("profiles").insert({ id: created.user.id, employee_id: employeeId, display_name: parsed.value.displayName.trim(), role: parsed.value.role, is_active: true, created_by: userData.user.id, updated_by: userData.user.id });
+  const { error: profileError } = await adminClient.rpc(
+    "admin_create_profile",
+    buildProfileCreationRpcArgs(userData.user.id, created.user.id, {
+      employeeId,
+      displayName: parsed.value.displayName,
+      role: parsed.value.role,
+    }),
+  );
   if (profileError) {
     const cleanup = await rollbackCreatedUser(adminClient.auth.admin, created.user.id, crypto.randomUUID(), console.error);
     return response(cleanup === "deleted" ? 500 : 500, { error: cleanup === "deleted" ? "profile_creation_failed" : "cleanup_failed" });

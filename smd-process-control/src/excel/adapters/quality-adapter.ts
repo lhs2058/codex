@@ -1,6 +1,7 @@
 import type { ImportDiagnostic, ImportParseResult, WorkbookKind, WorkbookSheet } from "../contracts";
 import type { ProcessCode } from "../../domain/types";
 import { normalizeLineName, normalizeProcessName, normalizeProductionDate, normalizeQuantity } from "../normalize";
+import { qualityOnlyRow } from "../import-row";
 
 type QualityOptions = { kind: Extract<WorkbookKind, "aoi" | "spi" | "ict" | "xray">; process: ProcessCode; sheet: (name: string) => boolean; daily: boolean };
 const fold = (value: unknown) => typeof value === "string" ? value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/đ/g, "d").replace(/[^a-z0-9]+/g, " ").trim() : "";
@@ -28,7 +29,7 @@ export function parseQualityWorkbook(sheets: WorkbookSheet[], options: QualityOp
       try {
         const inputQty = normalizeQuantity(source[input], "inputQty"); const okQty = normalizeQuantity(source[ok], "okQty");
         if (okQty > inputQty) throw new Error("okQty");
-        rows.push({ sourceSheet: sheet.sheet, sourceRow, productionDate: normalizeProductionDate(source[date], 2026), shiftCode: typeof source[shift] === "string" && source[shift].trim() ? source[shift].trim() : "DAY", timeSlotCode: options.daily ? null : typeof source[time] === "string" && source[time].trim() ? source[time].trim().toUpperCase() : null, lineCode: normalizeLineName(source[line]), modelCode: String(source[model]).trim(), processCode: options.process, inputQty, actualQty: okQty, okQty, ngQty: inputQty - okQty, downtimeMinutes: 0, downtimeReasonCode: null, note: "" });
+        rows.push(qualityOnlyRow({ sourceSheet: sheet.sheet, sourceRow, productionDate: normalizeProductionDate(source[date], 2026), shiftCode: typeof source[shift] === "string" && source[shift].trim() ? source[shift].trim() : "DAY", timeSlotCode: options.daily ? null : typeof source[time] === "string" && source[time].trim() ? source[time].trim().toUpperCase() : null, lineCode: normalizeLineName(source[line]), modelCode: String(source[model]).trim(), processCode: options.process, inputQty, actualQty: 0, okQty, ngQty: inputQty - okQty, downtimeMinutes: 0, downtimeReasonCode: null, note: "" }));
       } catch (error) {
         const field = error instanceof Error && error.message.includes("okQty") ? "okQty" : error instanceof Error && error.message.includes("inputQty") ? "inputQty" : "row";
         diagnostics.push(diagnostic(sheet.sheet, sourceRow, field === "row" ? "missing-required-value" : "invalid-count", error instanceof Error ? error.message : "Invalid quality row", field));

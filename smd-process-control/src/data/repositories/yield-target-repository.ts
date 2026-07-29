@@ -27,6 +27,48 @@ export interface YieldTargetRepository {
   listYieldTargets(filters: AnalysisFilters, processId: string | null): Promise<YieldTarget[]>;
 }
 
+export interface YieldTargetSubject {
+  productionDate: string;
+  modelId: string;
+  processId: string;
+  lineId: string;
+  inputQty: number;
+}
+
+export function resolveYieldTarget(
+  row: Omit<YieldTargetSubject, "inputQty">,
+  targets: YieldTarget[],
+): number | null {
+  const precedence = (target: YieldTarget) =>
+    target.modelId !== null
+      ? target.lineId !== null ? 3 : 2
+      : target.lineId !== null ? 1 : 0;
+  const matches = targets
+    .filter((target) =>
+      target.processId === row.processId
+      && (target.modelId === null || target.modelId === row.modelId)
+      && (target.lineId === null || target.lineId === row.lineId)
+      && target.effectiveFrom <= row.productionDate
+      && (target.effectiveTo === null || target.effectiveTo >= row.productionDate))
+    .sort((left, right) =>
+      precedence(right) - precedence(left)
+      || right.effectiveFrom.localeCompare(left.effectiveFrom));
+  return matches[0]?.targetPercent ?? null;
+}
+
+export function weightedYieldTarget(rows: YieldTargetSubject[], targets: YieldTarget[]): number | null {
+  let quantity = 0;
+  let weighted = 0;
+  for (const row of rows) {
+    if (row.inputQty <= 0) continue;
+    const target = resolveYieldTarget(row, targets);
+    if (target === null) return null;
+    quantity += row.inputQty;
+    weighted += row.inputQty * target;
+  }
+  return quantity === 0 ? null : weighted / quantity;
+}
+
 export function createYieldTargetRepository(
   client: YieldTargetClient = getSupabaseClient() as unknown as YieldTargetClient,
 ): YieldTargetRepository {

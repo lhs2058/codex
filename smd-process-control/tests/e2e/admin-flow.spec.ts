@@ -9,7 +9,7 @@ test("admin manages model and standard time, then explicitly replaces duplicate 
   await page.getByLabel("모델 코드").fill(requiredEnv("E2E_ADMIN_MODEL_CODE"));
   await page.getByLabel("모델명").fill(requiredEnv("E2E_ADMIN_MODEL_NAME"));
   const modelResponse = page.waitForResponse((response) =>
-    response.request().method() === "POST" && response.url().includes("/rest/v1/models"));
+    response.request().method() === "POST" && response.url().includes("/rpc/admin_manage_configuration"));
   await page.getByRole("button", { name: "모델 추가" }).click();
   const createdModel = await (await modelResponse).json() as { id?: string };
   expect(createdModel.id).toMatch(/^[0-9a-f-]{36}$/);

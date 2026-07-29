@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { createMasterDataRepository, type MasterDataRepository } from "../../data/repositories/master-data-repository";
+import {
+  createMasterDataRepository,
+  type AdminOverview,
+  type MasterDataRepository,
+} from "../../data/repositories/master-data-repository";
 import type { MasterDataSnapshot } from "../../domain/types";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { MasterDataEditor } from "./MasterDataEditor";
 import { StandardTimeEditor } from "./StandardTimeEditor";
 import { UserEditor, type NewUser } from "./UserEditor";
+import { AdminOperationsPanel } from "./AdminOperationsPanel";
 
 const legacy: Partial<Record<TranslationKey, string>> = {
   "admin.title": "Administration",
@@ -30,6 +35,7 @@ export function AdminPage({
 }) {
   const { t } = useI18n(legacy);
   const [snapshot, setSnapshot] = useState<MasterDataSnapshot | null>(null);
+  const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [error, setError] = useState("");
   const [mutating, setMutating] = useState(false);
   const mounted = useRef(true);
@@ -39,9 +45,13 @@ export function AdminPage({
   const refresh = async () => {
     const current = ++generation.current;
     try {
-      const value = await repo().listMasterData();
+      const [value, admin] = await Promise.all([
+        repo().listMasterData(),
+        repo().listAdminOverview(),
+      ]);
       if (mounted.current && current === generation.current) {
         setSnapshot(value);
+        setOverview(admin);
         setError("");
       }
     } catch (cause) {
@@ -80,10 +90,19 @@ export function AdminPage({
     <p>{t("admin.description")}<span aria-hidden="true" className="sr-only">Admin workspace</span></p>
     {!snapshot && !error && <p role="status" aria-live="polite">{t("admin.loading")}</p>}
     {error && <><p role="alert">{error}</p><button disabled={mutating} onClick={() => void refresh()}>{t("common.retry")}</button></>}
-    {snapshot && <>
+    {snapshot && overview && <>
       <MasterDataEditor disabled={mutating} snapshot={snapshot} createModel={(input) => mutate(() => repo().createModel(input))} deactivateDowntimeReason={(id, version) => mutate(() => repo().deactivateDowntimeReason(id, version))} />
       <StandardTimeEditor disabled={mutating} snapshot={snapshot} save={(input) => mutate(() => repo().saveStandardTime(input))} />
       <UserEditor disabled={mutating} createUser={(input) => mutate(() => createUser(input))} />
+      <AdminOperationsPanel
+        disabled={mutating}
+        overview={overview}
+        snapshot={snapshot}
+        manageConfiguration={(command) => mutate(() => repo().manageConfiguration(command))}
+        manageProfile={(input) => mutate(() => repo().manageProfile(input))}
+        softDeleteProduction={(id, version) => mutate(() => repo().softDeleteProduction(id, version))}
+        createUploadOriginalUrl={(storagePath) => repo().createUploadOriginalUrl(storagePath)}
+      />
     </>}
   </main>;
 }

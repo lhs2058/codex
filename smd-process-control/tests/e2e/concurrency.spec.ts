@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { SEED_CONTRACT } from "../../scripts/e2e-seed-contract.mjs";
+import { SEED_CONTRACT, datedSeedIds } from "../../scripts/e2e-seed-contract.mjs";
 import {
   expectDashboardValue,
   login,
@@ -10,6 +10,7 @@ import {
 
 test("stale second context gets record_version_conflict, retains its draft, and dashboard refreshes within five seconds", async ({ browser }) => {
   const productionDate = requiredEnv("E2E_CONCURRENCY_DATE");
+  const expectedRecordId = datedSeedIds(productionDate).concurrencyRecord;
   const quantities = {
     input: SEED_CONTRACT.records.edited.inputQty,
     actual: SEED_CONTRACT.records.edited.actualQty,
@@ -41,7 +42,7 @@ test("stale second context gets record_version_conflict, retains its draft, and 
     ]);
     for (const page of [pageA, pageB]) {
       const form = page.getByTestId("production-entry-form");
-      await expect(form).toHaveAttribute("data-record-id", SEED_CONTRACT.ids.concurrencyRecord);
+      await expect(form).toHaveAttribute("data-record-id", expectedRecordId);
       await expect(form).toHaveAttribute("data-record-state", "existing");
       await expect(form).toHaveAttribute("data-record-version", String(SEED_CONTRACT.records.concurrency.version));
       await expect(page.getByLabel("실적", { exact: true })).toHaveValue(String(SEED_CONTRACT.records.concurrency.actualQty));

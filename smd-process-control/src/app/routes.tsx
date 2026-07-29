@@ -114,6 +114,7 @@ const responsiveFilters: DashboardFilters = {
 const responsiveSnapshot: DashboardSnapshot = {
   totalActual: 12480,
   weightedYield: { status: "ok", value: 96.8 },
+  weightedYieldTarget: 95,
   weightedUtilization: { status: "ok", value: 84.2 },
   attentionCount: 2,
   yields: responsiveMaster.processes.flatMap((process, processIndex) =>
@@ -121,6 +122,7 @@ const responsiveSnapshot: DashboardSnapshot = {
       processCode: process.code,
       lineId: line.id,
       result: { status: "ok" as const, value: 88 + processIndex * 2 + lineIndex },
+      targetPercent: 95,
     }))),
   utilization: responsiveMaster.lines.map((line, index) => ({
     lineId: line.id,
@@ -155,7 +157,7 @@ export function AppRoutes({ auth, responsiveTest = false }: { auth: AuthState; r
     <Route path="/analysis" element={<Protected auth={auth} allow={["operator", "admin", "viewer"]}><AnalysisPage embedded /></Protected>} />
     <Route path="/entry" element={<Protected auth={auth} allow={["operator", "admin"]}>{entry}</Protected>} />
     <Route path="/upload" element={<Protected auth={auth} allow={["operator", "admin"]}><UploadPage /></Protected>} />
-    <Route path="/admin" element={<Protected auth={auth} allow={["admin"]}><AdminPage /></Protected>} />
+    <Route path="/admin/*" element={<Protected auth={auth} allow={["admin"]}><AdminPage /></Protected>} />
     <Route path="*" element={<Protected auth={auth} allow={["operator", "admin", "viewer"]}><Navigate to="/" replace /></Protected>} />
   </Routes></div>;
 }

@@ -1,6 +1,13 @@
-import type { ImportDiagnostic, ImportParseResult, WorkbookSheet } from "../contracts";
+import type {
+  DefectClassification,
+  ImportDiagnostic,
+  ImportParseResult,
+  NormalizedDefectRow,
+  WorkbookSheet,
+} from "../contracts";
+import { combinedRow } from "../import-row";
 import { normalizeLineName, normalizeProcessName, normalizeProductionDate, normalizeQuantity } from "../normalize";
-import { PRODUCTION_HEADERS } from "../template";
+import { DEFECT_HEADERS, PRODUCTION_HEADERS } from "../template";
 
 const normalizedHeader = (value: unknown) => String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 const expectedHeaders = PRODUCTION_HEADERS.map(normalizedHeader);
@@ -9,6 +16,91 @@ const hasData = (row: unknown[]) => row.some((value) => value !== null && value 
 
 function diagnostic(sourceRow: number, code: ImportDiagnostic["code"], message: string, field?: string): ImportDiagnostic {
   return { sourceSheet: "Production", sourceRow, code, message, field };
+}
+
+function defectDiagnostic(sourceRow: number, code: ImportDiagnostic["code"], message: string, field?: string): ImportDiagnostic {
+  return { sourceSheet: "Defects", sourceRow, code, message, field };
+}
+
+function parseDefects(
+  sheet: WorkbookSheet | undefined,
+  productionRows: Map<number, ImportParseResult["rows"][number]>,
+): { rows: NormalizedDefectRow[]; diagnostics: ImportDiagnostic[] } {
+  if (!sheet) return { rows: [], diagnostics: [] };
+  const diagnostics: ImportDiagnostic[] = [];
+  const header = sheet.data[0] ?? [];
+  const expected = DEFECT_HEADERS.map(normalizedHeader);
+  if (!expected.every((value, index) => normalizedHeader(header[index]) === value)
+    || hasData(header.slice(DEFECT_HEADERS.length))) {
+    return {
+      rows: [],
+      diagnostics: [defectDiagnostic(1, "missing-required-value", "Defects headers do not match SMD_STANDARD_V1", "headers")],
+    };
+  }
+
+  const rows: NormalizedDefectRow[] = [];
+  const seen = new Set<string>();
+  for (let index = 1; index < sheet.data.length; index += 1) {
+    const source = sheet.data[index] ?? [];
+    if (!hasData(source)) continue;
+    const sourceRow = index + 1;
+    let productionSourceRow: number;
+    let quantity: number;
+    try {
+      productionSourceRow = normalizeQuantity(source[0], "Production Row");
+      quantity = normalizeQuantity(source[3], "defect quantity");
+    } catch (error) {
+      diagnostics.push(defectDiagnostic(sourceRow, "invalid-count", error instanceof Error ? error.message : "Invalid Defects row", "quantity"));
+      continue;
+    }
+    if (productionSourceRow < 3 || !productionRows.has(productionSourceRow)) {
+      diagnostics.push(defectDiagnostic(sourceRow, "missing-required-value", "Defect references an unknown Production row", "productionRow"));
+      continue;
+    }
+    const defectType = text(source[1]);
+    if (!defectType || defectType.length > 200 || /^[=+\-@]/.test(defectType)) {
+      diagnostics.push(defectDiagnostic(sourceRow, "invalid-count", "Defect Type is missing or unsafe for spreadsheet export", "defectType"));
+      continue;
+    }
+    const classification = text(source[2]).toLowerCase();
+    if (!["pseudo", "real", "scrap"].includes(classification)) {
+      diagnostics.push(defectDiagnostic(sourceRow, "invalid-count", "Classification must be pseudo, real, or scrap", "classification"));
+      continue;
+    }
+    if (quantity <= 0) {
+      diagnostics.push(defectDiagnostic(sourceRow, "invalid-count", "Defect quantity must be positive", "quantity"));
+      continue;
+    }
+    const key = `${productionSourceRow}|${defectType.toLocaleLowerCase()}|${classification}`;
+    if (seen.has(key)) {
+      diagnostics.push(defectDiagnostic(sourceRow, "duplicate-record", "Duplicate defect in workbook", "duplicate"));
+      continue;
+    }
+    seen.add(key);
+    rows.push({
+      sourceSheet: "Defects",
+      sourceRow,
+      productionSourceRow,
+      defectType,
+      classification: classification as DefectClassification,
+      quantity,
+    });
+  }
+
+  for (const [productionSourceRow, production] of productionRows) {
+    const linked = rows.filter((row) => row.productionSourceRow === productionSourceRow);
+    if (linked.length === 0) continue;
+    const quality = production.dimensions.quality;
+    if (!quality) {
+      diagnostics.push(defectDiagnostic(linked[0]!.sourceRow, "missing-required-value", "Defects require a linked quality dimension", "productionRow"));
+      continue;
+    }
+    if (linked.reduce((total, row) => total + row.quantity, 0) > quality.ngQty) {
+      diagnostics.push(defectDiagnostic(linked[0]!.sourceRow, "invalid-count", "Defect quantity exceeds linked NG quantity", "quantity"));
+    }
+  }
+
+  return { rows: diagnostics.length ? [] : rows, diagnostics };
 }
 
 export function parseStandardWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
@@ -80,7 +172,7 @@ export function parseStandardWorkbook(sheets: WorkbookSheet[]): ImportParseResul
       if ((downtimeMinutes > 0 && !downtimeReasonCode) || (downtimeMinutes === 0 && downtimeReasonCode)) {
         throw new Error("Downtime minutes and reason must be supplied together");
       }
-      rows.push({
+      rows.push(combinedRow({
         sourceSheet: "Production",
         sourceRow,
         productionDate: normalizeProductionDate(row[0]),
@@ -96,10 +188,14 @@ export function parseStandardWorkbook(sheets: WorkbookSheet[]): ImportParseResul
         downtimeMinutes,
         downtimeReasonCode,
         note: text(row[12]),
-      });
+      }));
     } catch (error) {
       diagnostics.push(diagnostic(sourceRow, "invalid-count", error instanceof Error ? error.message : "Invalid production row", "row"));
     }
   }
+  const bySourceRow = new Map(rows.map((row) => [row.sourceRow, row]));
+  const defects = parseDefects(sheets.find((sheet) => sheet.sheet === "Defects"), bySourceRow);
+  diagnostics.push(...defects.diagnostics);
+  for (const defect of defects.rows) bySourceRow.get(defect.productionSourceRow)!.defects.push(defect);
   return { kind: "standard", rows, diagnostics };
 }

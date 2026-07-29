@@ -13,6 +13,11 @@ import {
   type DashboardQualityFilters,
   type DashboardQualityRecord,
 } from "./quality-repository";
+import {
+  createYieldTargetRepository,
+  weightedYieldTarget,
+  type YieldTargetRepository,
+} from "./yield-target-repository";
 import { getSupabaseClient } from "../supabase";
 
 export interface DashboardRepository {
@@ -24,6 +29,7 @@ export interface DashboardDependencies {
   master: Pick<MasterDataRepository, "listMasterData">;
   production: Pick<ProductionRepository, "listDashboardProduction">;
   quality: { listDashboardQuality(filters: DashboardQualityFilters): Promise<DashboardQualityRecord[]> };
+  targets: Pick<YieldTargetRepository, "listYieldTargets">;
   subscribe?: DashboardRepository["subscribeDashboard"];
   now?: () => Date;
 }
@@ -161,6 +167,7 @@ export function createDashboardRepository(dependencies?: Partial<DashboardDepend
   const master = dependencies?.master ?? createMasterDataRepository();
   const production = dependencies?.production ?? createProductionRepository();
   const quality = dependencies?.quality ?? createQualityRepository();
+  const targets = dependencies?.targets ?? createYieldTargetRepository();
   const now = dependencies?.now ?? (() => new Date());
   const subscribe = dependencies?.subscribe
     ?? ((filters: DashboardFilters, onChange: () => void) =>
@@ -181,14 +188,34 @@ export function createDashboardRepository(dependencies?: Partial<DashboardDepend
         ...repositoryFilters,
         productionRecordIds: productionRecords.map((record) => record.id),
       });
+      const yieldTargets = await targets.listYieldTargets({
+        from: filters.productionDate,
+        to: filters.productionDate,
+        groupBy: "day",
+        shiftId: filters.shiftId,
+        modelId: filters.modelId,
+        lineId: filters.lineId,
+        processCode: filters.processCode,
+      }, processId);
       const lines = masterData.lines.filter((line) => line.active && (!filters.lineId || line.id === filters.lineId));
       const processes = masterData.processes.filter((process) =>
         process.active && (!filters.processCode || process.code === filters.processCode));
-      const yields = processes.flatMap((process) => lines.map((line) => ({
-        processCode: process.code,
-        lineId: line.id,
-        result: aggregateYield(qualityRecords.filter((row) => row.processId === process.id && row.lineId === line.id)),
-      })));
+      const targetRows = (rows: DashboardQualityRecord[]) => rows.map((row) => ({
+        productionDate: filters.productionDate,
+        modelId: row.modelId,
+        processId: row.processId,
+        lineId: row.lineId,
+        inputQty: row.inputQty,
+      }));
+      const yields = processes.flatMap((process) => lines.map((line) => {
+        const rows = qualityRecords.filter((row) => row.processId === process.id && row.lineId === line.id);
+        return {
+          processCode: process.code,
+          lineId: line.id,
+          result: aggregateYield(rows),
+          targetPercent: weightedYieldTarget(targetRows(rows), yieldTargets),
+        };
+      }));
       const utilization = lines.map((line) => ({
         lineId: line.id,
         result: utilizationFor(productionRecords.filter((record) => record.lineId === line.id), masterData, filters.productionDate),
@@ -209,6 +236,7 @@ export function createDashboardRepository(dependencies?: Partial<DashboardDepend
       return {
         totalActual: productionRecords.reduce((total, record) => total + record.actualQty, 0),
         weightedYield: aggregateYield(qualityRecords),
+        weightedYieldTarget: weightedYieldTarget(targetRows(qualityRecords), yieldTargets),
         weightedUtilization: utilizationFor(productionRecords, masterData, filters.productionDate),
         attentionCount: attentionCount(productionRecords, masterData, filters.productionDate),
         yields,

@@ -6,6 +6,7 @@ import {
   SEED_CONTRACT,
   assertSeedEnvironment,
   buildDuplicateWorkbookBuffer,
+  datedSeedIds,
   publicSeedManifest,
 } from "./e2e-seed-contract.mjs";
 
@@ -29,6 +30,19 @@ async function must(label, promise) {
   const result = await promise;
   if (result.error) throw new Error(`${label}: ${result.error.message ?? "unknown error"}`);
   return result.data;
+}
+
+async function softRetire(label, table, column, values, actorId, deactivate = false) {
+  if (values.length === 0) return;
+  const timestamp = new Date().toISOString();
+  const changes = {
+    deleted_at: timestamp,
+    deleted_by: actorId,
+    updated_at: timestamp,
+    updated_by: actorId,
+    ...(deactivate ? { is_active: false } : {}),
+  };
+  await must(label, client.from(table).update(changes).in(column, values).is("deleted_at", null));
 }
 
 async function ensureAuthUser(role) {
@@ -57,6 +71,7 @@ async function ensureAuthUser(role) {
 
 async function seed() {
   const productionDate = bangkokDate();
+  const datedIds = datedSeedIds(productionDate);
   const users = {
     operator: await ensureAuthUser("operator"),
     admin: await ensureAuthUser("admin"),
@@ -82,9 +97,9 @@ async function seed() {
     .eq("code", SEED_CONTRACT.codes.adminModel));
   const priorAdminModelIds = (priorAdminModels ?? []).map((model) => model.id);
   if (priorAdminModelIds.length > 0) {
-    await must("clear prior admin standard time", client.from("standard_times").delete().in("model_id", priorAdminModelIds));
-    await must("clear prior admin targets", client.from("yield_targets").delete().in("model_id", priorAdminModelIds));
-    await must("clear prior admin model", client.from("models").delete().in("id", priorAdminModelIds));
+    await softRetire("retire prior admin standard time", "standard_times", "model_id", priorAdminModelIds, adminId);
+    await softRetire("retire prior admin targets", "yield_targets", "model_id", priorAdminModelIds, adminId);
+    await softRetire("retire prior admin model", "models", "id", priorAdminModelIds, adminId, true);
   }
 
   await must("upsert model", client.from("models").upsert({
@@ -229,17 +244,29 @@ async function seed() {
     .eq("process_id", processId));
   const operatorRecordIds = (operatorRecords ?? []).map((record) => record.id);
   if (operatorRecordIds.length > 0) {
-    await must("clear prior operator downtime", client.from("downtime_records").delete().in("production_record_id", operatorRecordIds));
-    await must("clear prior operator quality", client.from("quality_records").delete().in("production_record_id", operatorRecordIds));
-    await must("clear prior operator production", client.from("production_records").delete().in("id", operatorRecordIds));
+    await softRetire("retire prior operator downtime", "downtime_records", "production_record_id", operatorRecordIds, adminId);
+    await softRetire("retire prior operator quality", "quality_records", "production_record_id", operatorRecordIds, adminId);
+    await softRetire("retire prior operator production", "production_records", "id", operatorRecordIds, adminId);
   }
 
-  const recordIds = [SEED_CONTRACT.ids.concurrencyRecord, SEED_CONTRACT.ids.reportRecord];
-  await must("clear fixture downtime", client.from("downtime_records").delete().in("production_record_id", recordIds));
-  await must("clear fixture quality", client.from("quality_records").delete().in("production_record_id", recordIds));
+  const priorFixtureRecords = await must("find prior fixed-line fixture records", client.from("production_records")
+    .select("id")
+    .eq("production_date", productionDate)
+    .eq("shift_id", SEED_CONTRACT.ids.shift)
+    .eq("line_id", SEED_CONTRACT.ids.line)
+    .eq("model_id", SEED_CONTRACT.ids.model)
+    .eq("process_id", processId));
+  const recordIds = [...new Set([
+    datedIds.concurrencyRecord,
+    datedIds.reportRecord,
+    ...(priorFixtureRecords ?? []).map((record) => record.id),
+  ])];
+  await softRetire("retire fixed-line fixture downtime", "downtime_records", "production_record_id", recordIds, adminId);
+  await softRetire("retire fixed-line fixture quality", "quality_records", "production_record_id", recordIds, adminId);
+  await softRetire("retire fixed-line fixture production", "production_records", "id", recordIds, adminId);
   await must("upsert production records", client.from("production_records").upsert([
     {
-      id: SEED_CONTRACT.ids.concurrencyRecord,
+      id: datedIds.concurrencyRecord,
       production_date: productionDate,
       shift_id: SEED_CONTRACT.ids.shift,
       time_slot_id: SEED_CONTRACT.ids.concurrencySlot,
@@ -253,9 +280,10 @@ async function seed() {
       updated_by: users.operator.id,
       version: SEED_CONTRACT.records.concurrency.version,
       deleted_at: null,
+      deleted_by: null,
     },
     {
-      id: SEED_CONTRACT.ids.reportRecord,
+      id: datedIds.reportRecord,
       production_date: productionDate,
       shift_id: SEED_CONTRACT.ids.shift,
       time_slot_id: SEED_CONTRACT.ids.reportSlot,
@@ -269,13 +297,16 @@ async function seed() {
       updated_by: users.operator.id,
       version: SEED_CONTRACT.records.report.version,
       deleted_at: null,
+      deleted_by: null,
     },
   ], { onConflict: "id" }));
   await must("upsert quality records", client.from("quality_records").upsert([
     {
-      id: SEED_CONTRACT.ids.concurrencyQuality,
-      production_record_id: SEED_CONTRACT.ids.concurrencyRecord,
+      id: datedIds.concurrencyQuality,
+      production_record_id: datedIds.concurrencyRecord,
       production_date: productionDate,
+      shift_id: SEED_CONTRACT.ids.shift,
+      time_slot_id: SEED_CONTRACT.ids.concurrencySlot,
       line_id: SEED_CONTRACT.ids.line,
       model_id: SEED_CONTRACT.ids.model,
       process_id: processId,
@@ -287,11 +318,14 @@ async function seed() {
       updated_by: users.operator.id,
       version: SEED_CONTRACT.records.concurrency.version,
       deleted_at: null,
+      deleted_by: null,
     },
     {
-      id: SEED_CONTRACT.ids.reportQuality,
-      production_record_id: SEED_CONTRACT.ids.reportRecord,
+      id: datedIds.reportQuality,
+      production_record_id: datedIds.reportRecord,
       production_date: productionDate,
+      shift_id: SEED_CONTRACT.ids.shift,
+      time_slot_id: SEED_CONTRACT.ids.reportSlot,
       line_id: SEED_CONTRACT.ids.line,
       model_id: SEED_CONTRACT.ids.model,
       process_id: processId,
@@ -303,11 +337,12 @@ async function seed() {
       updated_by: users.operator.id,
       version: 1,
       deleted_at: null,
+      deleted_by: null,
     },
   ], { onConflict: "id" }));
   await must("upsert downtime record", client.from("downtime_records").upsert({
-    id: SEED_CONTRACT.ids.concurrencyDowntime,
-    production_record_id: SEED_CONTRACT.ids.concurrencyRecord,
+    id: datedIds.concurrencyDowntime,
+    production_record_id: datedIds.concurrencyRecord,
     reason_id: SEED_CONTRACT.ids.downtimeReason,
     minutes: SEED_CONTRACT.records.concurrency.downtimeMinutes,
     note: "Seeded downtime",
@@ -315,6 +350,7 @@ async function seed() {
     updated_by: users.operator.id,
     version: 1,
     deleted_at: null,
+    deleted_by: null,
   }, { onConflict: "id" }));
 
   await mkdir(path.dirname(configuration.workbookPath), { recursive: true });

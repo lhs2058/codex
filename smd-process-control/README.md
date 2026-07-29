@@ -121,10 +121,9 @@ $env:E2E_SEED_CONFIRM='local-only-smd-e2e'
 npm run seed:e2e
 ```
 
-The script is idempotent for its fixture scope. It creates or updates employee IDs `910001` (operator), `910002` (admin), and `910003` (viewer); their Auth UUIDs are resolved and recorded without credentials in `.e2e/seed-manifest.json`. It creates fixed-ID `E2E-MODEL`, `LINE-1`, `LINE-2`, `E2E-DAY`, `E2E-08`, `E2E-09`, `E2E-WAIT`, standard-time, target, production, quality, and downtime fixtures. AOI is the migration-owned process and its resolved UUID is written to the manifest.
+The script is idempotent for its fixture scope. It creates or updates employee IDs `910001` (operator), `910002` (admin), and `910003` (viewer); their Auth UUIDs are resolved and recorded without credentials in `.e2e/seed-manifest.json`. It creates fixed-ID `E2E-MODEL`, `LINE-1`, `LINE-2`, `E2E-DAY`, `E2E-08`, `E2E-09`, `E2E-WAIT`, standard-time, and target fixtures. Production, quality, and downtime IDs are deterministic for the Bangkok production date so a next-day seed never mutates immutable production dimensions. AOI is the migration-owned process and its resolved UUID is written to the manifest. Re-seeding retires only prior rows in this fixture namespace by setting audit-aware deletion or inactive fields, then upserts the current fixture IDs; it never physically deletes application records.
 
-For the Bangkok current day, the fixed concurrency record
-`e2000000-0000-4000-8000-000000000101` is version 3 with input/actual/OK/NG `100/100/99/1` and 5 downtime minutes. A second report record contributes actual 200, so the `LINE-1` dashboard baseline is exactly 300. The concurrency edit is `110/110/109/1`, advances the first record to version 4, and makes the exact dashboard total 310. The generated workbook duplicates the separate report record (`E2E-09`) so admin replacement cannot invalidate the concurrency version.
+For the Bangkok current day, the date-derived concurrency record is version 3 with input/actual/OK/NG `100/100/99/1` and 5 downtime minutes; its exact ID is written to `.e2e/seed-manifest.json`. A second report record contributes actual 200, so the `LINE-1` dashboard baseline is exactly 300. The concurrency edit is `110/110/109/1`, advances the first record to version 4, and makes the exact dashboard total 310. The generated workbook duplicates the separate report record (`E2E-09`) so admin replacement cannot invalidate the concurrency version.
 
 Load the public E2E variables from that contract:
 
@@ -149,7 +148,7 @@ $env:E2E_ST_SECONDS='11'
 $env:E2E_ST_EFFECTIVE_FROM='2020-01-01'
 ```
 
-The three password variables remain in the current shell for Playwright. Do not put them in a tracked file. Missing E2E configuration is an error, not a skipped critical test. Re-run `npm run seed:e2e` before a fresh full browser suite; the seed removes only prior records in its fixed local fixture scope and does not weaken RLS or add a production bypass.
+The three password variables remain in the current shell for Playwright. Do not put them in a tracked file. Missing E2E configuration is an error, not a skipped critical test. Re-run `npm run seed:e2e` before a fresh full browser suite; the seed retires only prior records in its fixed local fixture scope and does not weaken RLS or add a production bypass.
 
 Run the release gate:
 
@@ -165,6 +164,30 @@ npm run test:e2e
 ```
 
 The E2E suite verifies operator/admin/viewer navigation and direct-route guards, admin-only duplicate replacement, report downloads, two-context `record_version_conflict` draft retention, and dashboard Realtime refresh within five seconds. No critical test may be skipped.
+
+## Dependency advisory record
+
+The 2026-07-29 dependency qualification upgraded `jspdf` to `4.2.1`,
+`write-excel-file` to `4.1.1`, and `react-router-dom` to the current stable
+`7.18.2`. PDF/Excel contract tests, route-guard tests, the source-backed full
+suite, and the production build pass with those versions.
+
+The final `npm audit --json` still reports two high findings: the direct
+`react-router-dom` package and its `react-router` dependency both point to
+GHSA-qwww-vcr4-c8h2, an RSC-mode server-action CSRF advisory. This application
+is a Vite browser SPA using only `BrowserRouter`, `Routes`, and client
+navigation; it has no React Server Component mode, router server actions,
+server rendering, or React Router server runtime.
+
+There is no stable release that currently clears all React Router advisories.
+The registry's suggested downgrade to `7.11.0` removes the new RSC advisory but
+reintroduces previously fixed high-severity XSS, RCE, and denial-of-service
+advisories affecting versions through `7.17.0`. Therefore `7.18.2` remains
+pinned and the RSC-only finding is a documented upstream exception, not a
+blanket audit ignore. The release owner must record a named, time-bounded
+acceptance and re-run the audit when a stable release containing the RSC fix is
+published. Adding RSC, SSR, or router server-action features is a release
+blocker until that upgrade is complete.
 
 ## Independent hosting deployment
 

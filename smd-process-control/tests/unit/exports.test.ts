@@ -52,11 +52,21 @@ describe("analysis Excel export", () => {
   it("creates the five exact sheets with typed dates, numbers, filters, and generation metadata", async () => {
     const generatedAt = new Date("2026-07-28T08:30:00.000Z");
     const report = buildAnalysisExcelReport(dataset, "ko", generatedAt);
-    const buffer = await writeXlsxFile(report.data, {
-      ...report.options,
-      sheets: report.sheets,
-      buffer: true,
-    });
+    const {
+      columns,
+      fontFamily,
+      fontSize,
+      ...sheetOptions
+    } = report.options;
+    const buffer = await writeXlsxFile(
+      report.data.map((data, index) => ({
+        ...sheetOptions,
+        data,
+        sheet: report.sheets[index],
+        columns: columns[index],
+      })),
+      { fontFamily, fontSize },
+    ).toBuffer();
 
     await expect(readSheetNames(buffer)).resolves.toEqual([
       "Summary",

@@ -4,6 +4,7 @@ import type { DashboardFilters, DashboardSnapshot, MasterDataSnapshot } from "..
 import { createDashboardRepository } from "../../src/data/repositories/dashboard-repository";
 import { createProductionRepository, type DashboardProductionRecord } from "../../src/data/repositories/production-repository";
 import { createQualityRepository } from "../../src/data/repositories/quality-repository";
+import { resolveYieldTarget } from "../../src/data/repositories/yield-target-repository";
 import { DashboardPage } from "../../src/features/dashboard/DashboardPage";
 
 const filters: DashboardFilters = {
@@ -101,6 +102,34 @@ function cappedClient(
 }
 
 describe("dashboard repository", () => {
+  it("uses deterministic model precedence when model-only and line-only targets tie", () => {
+    expect(resolveYieldTarget({
+      productionDate: "2026-07-28",
+      modelId: "model-a",
+      processId: "process-aoi",
+      lineId: "line-1",
+    }, [
+      {
+        id: "line-only",
+        modelId: null,
+        processId: "process-aoi",
+        lineId: "line-1",
+        targetPercent: 96,
+        effectiveFrom: "2026-01-01",
+        effectiveTo: null,
+      },
+      {
+        id: "model-only",
+        modelId: "model-a",
+        processId: "process-aoi",
+        lineId: null,
+        targetPercent: 98,
+        effectiveFrom: "2026-01-01",
+        effectiveTo: null,
+      },
+    ])).toBe(98);
+  });
+
   it("propagates every filter and calculates yield from summed quantities", async () => {
     const listDashboardProduction = vi.fn().mockResolvedValue([
       {
@@ -136,6 +165,7 @@ describe("dashboard repository", () => {
       master: { listMasterData: vi.fn().mockResolvedValue(master) },
       production: { listDashboardProduction },
       quality: { listDashboardQuality },
+      targets: { listYieldTargets: vi.fn().mockResolvedValue([]) },
     });
 
     const snapshot = await repository.loadDashboard(filters);
@@ -167,6 +197,7 @@ describe("dashboard repository", () => {
       master: { listMasterData: vi.fn().mockResolvedValue(master) },
       production: { listDashboardProduction: vi.fn().mockResolvedValue([]) },
       quality: { listDashboardQuality: vi.fn().mockResolvedValue([]) },
+      targets: { listYieldTargets: vi.fn().mockResolvedValue([]) },
     });
 
     const snapshot = await repository.loadDashboard(filters);
@@ -188,6 +219,7 @@ describe("dashboard repository", () => {
         ]),
       },
       quality: { listDashboardQuality: vi.fn().mockResolvedValue([]) },
+      targets: { listYieldTargets: vi.fn().mockResolvedValue([]) },
     });
 
     const snapshot = await repository.loadDashboard({ ...filters, modelId: null });
@@ -211,6 +243,7 @@ describe("dashboard repository", () => {
         ]),
       },
       quality: { listDashboardQuality: vi.fn().mockResolvedValue([]) },
+      targets: { listYieldTargets: vi.fn().mockResolvedValue([]) },
     });
 
     const snapshot = await repository.loadDashboard(filters);
@@ -225,6 +258,7 @@ describe("dashboard repository", () => {
       master: { listMasterData: vi.fn().mockResolvedValue(master) },
       production: { listDashboardProduction: vi.fn().mockResolvedValue([productionRecord({ timeSlotId: "slot-c" })]) },
       quality: { listDashboardQuality: vi.fn().mockResolvedValue([]) },
+      targets: { listYieldTargets: vi.fn().mockResolvedValue([]) },
       now: () => new Date("2026-07-27T23:30:00.000Z"),
     });
 
@@ -243,6 +277,7 @@ describe("dashboard repository", () => {
         ]),
       },
       quality: { listDashboardQuality: vi.fn().mockResolvedValue([]) },
+      targets: { listYieldTargets: vi.fn().mockResolvedValue([]) },
       now: () => new Date("2026-07-28T02:30:00.000Z"),
     });
 
@@ -293,6 +328,7 @@ describe("dashboard repository pagination", () => {
       master: { listMasterData: vi.fn().mockResolvedValue(master) },
       production: createProductionRepository(client as never),
       quality: createQualityRepository(client as never),
+      targets: { listYieldTargets: vi.fn().mockResolvedValue([]) },
     });
 
     const snapshot = await repository.loadDashboard(filters);
@@ -332,6 +368,211 @@ describe("dashboard repository pagination", () => {
     expect(rows).toHaveLength(101);
     expect(rows.reduce((total, row) => total + row.okQty, 0)).toBe(101);
   });
+
+  it("loads daily and time-slotted quality observations without production records", async () => {
+    const client = cappedClient({
+      quality_records: [
+        {
+          id: "slot-quality-aoi",
+          production_record_id: null,
+          production_date: "2026-07-28",
+          shift_id: "shift-day",
+          time_slot_id: "slot-a",
+          line_id: "line-1",
+          model_id: "model-a",
+          process_id: "process-aoi",
+          input_qty: 50,
+          ok_qty: 49,
+          deleted_at: null,
+        },
+        {
+          id: "daily-quality-aoi",
+          production_record_id: null,
+          production_date: "2026-07-28",
+          shift_id: "shift-day",
+          time_slot_id: null,
+          line_id: "line-1",
+          model_id: "model-a",
+          process_id: "process-aoi",
+          input_qty: 100,
+          ok_qty: 98,
+          deleted_at: null,
+        },
+        {
+          id: "wrong-shift",
+          production_record_id: null,
+          production_date: "2026-07-28",
+          shift_id: "shift-night",
+          time_slot_id: null,
+          line_id: "line-1",
+          model_id: "model-a",
+          process_id: "process-aoi",
+          input_qty: 100,
+          ok_qty: 1,
+          deleted_at: null,
+        },
+      ],
+    });
+
+    const rows = await createQualityRepository(client as never).listDashboardQuality({
+      productionDate: "2026-07-28",
+      shiftId: "shift-day",
+      modelId: "model-a",
+      lineId: "line-1",
+      processId: "process-aoi",
+      productionRecordIds: [],
+    });
+
+    expect(rows).toEqual([
+      {
+        id: "daily-quality-aoi",
+        productionRecordId: null,
+        lineId: "line-1",
+        modelId: "model-a",
+        processId: "process-aoi",
+        inputQty: 100,
+        okQty: 98,
+      },
+      {
+        id: "slot-quality-aoi",
+        productionRecordId: null,
+        lineId: "line-1",
+        modelId: "model-a",
+        processId: "process-aoi",
+        inputQty: 50,
+        okQty: 49,
+      },
+    ]);
+  });
+
+  it("loads the most-specific effective targets and weights them by quality input", async () => {
+    const listYieldTargets = vi.fn().mockResolvedValue([
+      {
+        id: "global-process",
+        modelId: null,
+        processId: "process-aoi",
+        lineId: null,
+        targetPercent: 94,
+        effectiveFrom: "2026-01-01",
+        effectiveTo: null,
+      },
+      {
+        id: "line-specific",
+        modelId: null,
+        processId: "process-aoi",
+        lineId: "line-1",
+        targetPercent: 96,
+        effectiveFrom: "2026-01-01",
+        effectiveTo: null,
+      },
+      {
+        id: "model-line-specific",
+        modelId: "model-a",
+        processId: "process-aoi",
+        lineId: "line-1",
+        targetPercent: 98,
+        effectiveFrom: "2026-07-01",
+        effectiveTo: null,
+      },
+    ]);
+    const repository = createDashboardRepository({
+      master: { listMasterData: vi.fn().mockResolvedValue(master) },
+      production: { listDashboardProduction: vi.fn().mockResolvedValue([]) },
+      quality: {
+        listDashboardQuality: vi.fn().mockResolvedValue([
+          {
+            id: "quality-a",
+            productionRecordId: null,
+            productionDate: "2026-07-28",
+            lineId: "line-1",
+            modelId: "model-a",
+            processId: "process-aoi",
+            inputQty: 100,
+            okQty: 97,
+          },
+          {
+            id: "quality-b",
+            productionRecordId: null,
+            productionDate: "2026-07-28",
+            lineId: "line-1",
+            modelId: "model-b",
+            processId: "process-aoi",
+            inputQty: 300,
+            okQty: 288,
+          },
+        ]),
+      },
+      targets: { listYieldTargets },
+    });
+
+    const snapshot = await repository.loadDashboard({ ...filters, modelId: null });
+
+    expect(listYieldTargets).toHaveBeenCalledWith({
+      from: "2026-07-28",
+      to: "2026-07-28",
+      groupBy: "day",
+      shiftId: "shift-day",
+      modelId: null,
+      lineId: "line-1",
+      processCode: "AOI",
+    }, "process-aoi");
+    expect(snapshot.weightedYieldTarget).toBe(96.5);
+    expect(snapshot.yields).toEqual([
+      {
+        processCode: "AOI",
+        lineId: "line-1",
+        result: { status: "ok", value: 96.25 },
+        targetPercent: 96.5,
+      },
+    ]);
+  });
+
+  it("does not compare a full yield population against a partially configured target", async () => {
+    const repository = createDashboardRepository({
+      master: { listMasterData: vi.fn().mockResolvedValue(master) },
+      production: { listDashboardProduction: vi.fn().mockResolvedValue([]) },
+      quality: {
+        listDashboardQuality: vi.fn().mockResolvedValue([
+          {
+            id: "configured",
+            productionRecordId: null,
+            productionDate: "2026-07-28",
+            lineId: "line-1",
+            modelId: "model-a",
+            processId: "process-aoi",
+            inputQty: 100,
+            okQty: 98,
+          },
+          {
+            id: "unconfigured",
+            productionRecordId: null,
+            productionDate: "2026-07-28",
+            lineId: "line-1",
+            modelId: "model-b",
+            processId: "process-aoi",
+            inputQty: 100,
+            okQty: 96,
+          },
+        ]),
+      },
+      targets: {
+        listYieldTargets: vi.fn().mockResolvedValue([{
+          id: "model-a-only",
+          modelId: "model-a",
+          processId: "process-aoi",
+          lineId: "line-1",
+          targetPercent: 98,
+          effectiveFrom: "2026-01-01",
+          effectiveTo: null,
+        }]),
+      },
+    });
+
+    const snapshot = await repository.loadDashboard({ ...filters, modelId: null });
+
+    expect(snapshot.weightedYieldTarget).toBeNull();
+    expect(snapshot.yields[0]?.targetPercent).toBeNull();
+  });
 });
 
 describe("DashboardPage", () => {
@@ -344,12 +585,14 @@ describe("DashboardPage", () => {
     const snapshot: DashboardSnapshot = {
       totalActual: 1234,
       weightedYield: { status: "ok", value: 97.5 },
+      weightedYieldTarget: 98,
       weightedUtilization: { status: "ok", value: 82 },
       attentionCount: 3,
       yields: master.processes.map((process) => ({
         processCode: process.code,
         lineId: "line-1",
         result: process.code === "XRAY" ? { status: "not-calculable", reason: "zero-input" } : { status: "ok", value: 95 },
+        targetPercent: process.code === "AOI" ? 98 : null,
       })),
       utilization: [{ lineId: "line-1", result: { status: "ok", value: 82 } }],
       downtime: [{ reasonId: "reason-breakdown", reasonName: "설비 고장", minutes: 25 }],
@@ -374,6 +617,9 @@ describe("DashboardPage", () => {
     expect(screen.getByLabelText("대시보드 메뉴")).toBeInTheDocument();
     expect(screen.getByText("금일 총 실적")).toBeInTheDocument();
     expect(screen.getByText("평균 공정 수율")).toBeInTheDocument();
+    expect(screen.getByText("목표 98.0% 미만")).toBeInTheDocument();
+    expect(screen.getByText("목표 98.0%")).toBeInTheDocument();
+    expect(screen.getAllByText("목표 미설정").length).toBeGreaterThan(0);
     expect(screen.getByText("평균 라인 가동률")).toBeInTheDocument();
     expect(screen.getByText("확인 필요")).toBeInTheDocument();
     expect(screen.getByRole("table", { name: "공정별 라인 수율" })).toBeInTheDocument();
@@ -383,5 +629,32 @@ describe("DashboardPage", () => {
     for (const code of ["A", "B", "C", "D", "E"]) expect(progress.getByText(code)).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
     expect(screen.queryByText("0%")).not.toBeInTheDocument();
+  });
+
+  it("labels a zero-input yield as unavailable even when a target exists", async () => {
+    const snapshot: DashboardSnapshot = {
+      totalActual: 0,
+      weightedYield: { status: "not-calculable", reason: "zero-input" },
+      weightedYieldTarget: 98,
+      weightedUtilization: { status: "not-calculable", reason: "zero-net-time" },
+      attentionCount: 0,
+      yields: [],
+      utilization: [],
+      downtime: [],
+      entryProgress: [],
+    };
+    render(<DashboardPage
+      initialFilters={filters}
+      masterRepository={{ listMasterData: vi.fn().mockResolvedValue(master) }}
+      dashboardRepository={{
+        loadDashboard: vi.fn().mockResolvedValue(snapshot),
+        subscribeDashboard: vi.fn().mockReturnValue(() => undefined),
+      }}
+    />);
+
+    await screen.findByRole("heading", { name: "통합 생산 대시보드" });
+    const kpis = screen.getByRole("region", { name: "핵심 지표" });
+    expect(within(kpis).getByText("산출 불가")).toBeInTheDocument();
+    expect(within(kpis).queryByText("목표 98.0% 미만")).not.toBeInTheDocument();
   });
 });

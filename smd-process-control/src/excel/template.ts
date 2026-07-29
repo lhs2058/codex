@@ -1,5 +1,7 @@
-import type { Columns, SheetData } from "write-excel-file";
+import type { SheetData } from "write-excel-file/browser";
 import type { MasterDataSnapshot } from "../domain/types";
+
+type SheetColumns = Array<{ width?: number }>;
 
 export const PRODUCTION_HEADERS = [
   "Production Date",
@@ -28,7 +30,7 @@ const header = (value: string) => ({
   value,
   type: String,
   fontWeight: "bold" as const,
-  color: "#FFFFFF",
+  textColor: "#FFFFFF",
   backgroundColor: "#0F766E",
   align: "center" as const,
   height: 24,
@@ -42,7 +44,7 @@ export interface StandardTemplateDefinition {
   data: SheetData[];
   sheets: ["Production", "Defects", "Reference"];
   options: {
-    columns: Columns[];
+    columns: SheetColumns[];
     stickyRowsCount: number;
     showGridLines: boolean;
     dateFormat: string;
@@ -59,10 +61,10 @@ export function buildStandardTemplate(
     [{
       value: "SMD_STANDARD_V1",
       type: String,
-      span: PRODUCTION_HEADERS.length,
+      columnSpan: PRODUCTION_HEADERS.length,
       fontWeight: "bold",
       fontSize: 16,
-      color: "#FFFFFF",
+      textColor: "#FFFFFF",
       backgroundColor: "#134E4A",
       align: "left",
       height: 30,
@@ -137,10 +139,20 @@ export function buildStandardTemplate(
 
 export async function downloadStandardTemplate(masterData: MasterDataSnapshot): Promise<void> {
   const template = buildStandardTemplate(masterData);
-  const { default: writeXlsxFile } = await import("write-excel-file");
-  await writeXlsxFile(template.data, {
-    ...template.options,
-    sheets: template.sheets,
-    fileName: "SMD_STANDARD_V1.xlsx",
-  });
+  const { default: writeXlsxFile } = await import("write-excel-file/browser");
+  const {
+    columns,
+    fontFamily,
+    fontSize,
+    ...sheetOptions
+  } = template.options;
+  await writeXlsxFile(
+    template.data.map((data, index) => ({
+      ...sheetOptions,
+      data,
+      sheet: template.sheets[index],
+      columns: columns[index],
+    })),
+    { fontFamily, fontSize },
+  ).toFile("SMD_STANDARD_V1.xlsx");
 }

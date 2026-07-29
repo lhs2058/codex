@@ -7,14 +7,19 @@ const record = (overrides: Partial<StandardTime> = {}): StandardTime => ({
   secondsPerUnit: 0.82, effectiveFrom: "2026-07-01", effectiveTo: "2026-07-31", ...overrides,
 });
 
-it("adds trusted actor metadata and uses an optimistic version predicate when deactivating", async () => {
-  const calls: unknown[] = [];
-  const chain: any = { select: () => chain, is: () => chain, eq: (...args: unknown[]) => { calls.push(args); return chain; }, order: () => Promise.resolve({ data: [], error: null }), single: () => Promise.resolve({ data: { id: "d1" }, error: null }) };
-  const client: any = { auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "actor-1" } }, error: null }) }, from: vi.fn(() => ({ ...chain, update: (value: unknown) => { calls.push(value); return chain; } })) };
+it("uses the hardened optimistic admin RPC when deactivating", async () => {
+  const rpc = vi.fn().mockResolvedValue({ data: { id: "d1", version: 5 }, error: null });
+  const client: any = { rpc, from: vi.fn() };
   const repository = createMasterDataRepository(client);
   await repository.deactivateDowntimeReason("d1", 4);
-  expect(calls).toContainEqual(["version", 4]);
-  expect(calls).toContainEqual({ is_active: false, version: 5, updated_by: "actor-1", updated_at: expect.any(String) });
+  expect(rpc).toHaveBeenCalledWith("admin_manage_configuration", {
+    p_entity: "downtime_reason",
+    p_action: "deactivate",
+    p_record_id: "d1",
+    p_expected_version: 4,
+    p_values: {},
+  });
+  expect(client.from).not.toHaveBeenCalled();
 });
 
 describe("standard-time effective periods", () => {

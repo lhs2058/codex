@@ -52,9 +52,37 @@ describe("legacy Excel adapters", () => {
     const ict = parseIctWorkbook(await readFixture("ict-sample.xlsx"));
     const xray = parseXrayWorkbook(await readFixture("xray-sample.xlsx"));
     expect(ict.rows).toHaveLength(1);
-    expect(ict.rows[0]).toMatchObject({ sourceSheet: "Data HS Công Đoạn ICT", sourceRow: 9, timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-A", inputQty: 20, okQty: 19, ngQty: 1 });
+    expect(ict.rows[0]).toMatchObject({
+      sourceSheet: "Data HS Công Đoạn ICT",
+      sourceRow: 9,
+      timeSlotCode: null,
+      lineCode: "LINE-1",
+      modelCode: "MODEL-A",
+      inputQty: 20,
+      actualQty: 0,
+      okQty: 19,
+      ngQty: 1,
+      dimensions: {
+        production: null,
+        quality: { inputQty: 20, okQty: 19, ngQty: 1 },
+      },
+    });
     expect(xray.rows).toHaveLength(1);
-    expect(xray.rows[0]).toMatchObject({ sourceSheet: "Xray", sourceRow: 9, timeSlotCode: null, lineCode: "LINE-2", modelCode: "MODEL-A", inputQty: 20, okQty: 19, ngQty: 1 });
+    expect(xray.rows[0]).toMatchObject({
+      sourceSheet: "Xray",
+      sourceRow: 9,
+      timeSlotCode: null,
+      lineCode: "LINE-2",
+      modelCode: "MODEL-A",
+      inputQty: 20,
+      actualQty: 0,
+      okQty: 19,
+      ngQty: 1,
+      dimensions: {
+        production: null,
+        quality: { inputQty: 20, okQty: 19, ngQty: 1 },
+      },
+    });
     expect([...ict.diagnostics, ...xray.diagnostics]).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceRow: 11, code: "missing-required-value", field: "modelCode" }),
     ]));
@@ -70,6 +98,23 @@ describe("legacy Excel adapters", () => {
     expect(parseXrayWorkbook([{ sheet: "Xray", data: [["wrong"]] }]).diagnostics).toContainEqual(expect.objectContaining({ field: "headers" }));
   });
 
+  it("rejects legacy ICT and Xray rows whose OK quantity exceeds input", () => {
+    const row = [null, null, "27.07.2026", "DAY", null, "MODEL-A", null, 1, 2];
+    const ict = parseIctWorkbook([{
+      sheet: "Data HS Công Đoạn ICT",
+      data: [[null, "Data Theo Dõi Hiệu Suất"], [], [], [], row],
+    }]);
+    const xray = parseXrayWorkbook([{
+      sheet: "Xray",
+      data: [[null, "Data Theo Dõi Hiệu Suất"], [], [], [], row],
+    }]);
+
+    expect(ict.rows).toEqual([]);
+    expect(xray.rows).toEqual([]);
+    expect(ict.diagnostics).toContainEqual(expect.objectContaining({ sourceRow: 5, code: "invalid-count" }));
+    expect(xray.diagnostics).toContainEqual(expect.objectContaining({ sourceRow: 5, code: "invalid-count" }));
+  });
+
   it("expands production A-E cells, retains actuals and downtime, and ignores CAPA as input", async () => {
     const result = parseProductionWorkbook(await readFixture("production-sample.xlsx"));
     expect(result.rows).toHaveLength(35);
@@ -80,7 +125,23 @@ describe("legacy Excel adapters", () => {
       expect.objectContaining({ sourceSheet: "25.07", sourceRow: 13, lineCode: "ROUTER-2", modelCode: "MODEL-A", processCode: "ROUTER", timeSlotCode: "A", actualQty: 8 }),
     ]));
     expect(result.rows.every((row) => row.inputQty === 0 && row.okQty === 0 && row.ngQty === 0)).toBe(true);
-    expect(result.diagnostics).toEqual(expect.arrayContaining([expect.objectContaining({ sourceRow: 14, code: "missing-required-value", field: "modelCode" })]));
+    expect(result.rows.every((row) =>
+      row.dimensions.production?.actualQty === row.actualQty
+      && row.dimensions.quality === null)).toBe(true);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it("maps positive legacy downtime without a reason to the registered review fallback", async () => {
+    const result = parseProductionWorkbook(await readFixture("production-sample.xlsx"));
+    const row = result.rows.find((candidate) => candidate.downtimeMinutes > 0);
+
+    expect(row).toMatchObject({
+      downtimeReasonCode: "LEGACY_UNSPECIFIED",
+      warnings: ["legacy-downtime-reason-unspecified"],
+    });
+    expect(result.diagnostics).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: "downtimeReasonCode" }),
+    ]));
   });
 
   it("detects and parses a complete production table shifted down and right without changing normalized semantics", () => {
@@ -117,6 +178,43 @@ describe("legacy Excel adapters", () => {
     });
   });
 
+  it("inherits merged legacy production line cells and ignores totals and empty time slots", () => {
+    const sheet = productionSheet(0, 2);
+    const firstDataRow = sheet.data[4]!;
+    const continuation = [...firstDataRow];
+    continuation[3] = null;
+    continuation[4] = null;
+    continuation[5] = "MODEL-C";
+    continuation[14] = null;
+    const total = [...firstDataRow];
+    total[4] = "Total";
+    total[5] = null;
+    const strayFooter = [...Array(firstDataRow.length).fill(null)];
+    strayFooter[14] = 34.75;
+    sheet.data.push(continuation, total, strayFooter);
+
+    const result = parseProductionWorkbook([sheet]);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.rows).toHaveLength(9);
+    expect(result.rows.slice(5)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ shiftCode: "NIGHT", lineCode: "LINE-2", modelCode: "MODEL-C", timeSlotCode: "A", actualQty: 8 }),
+      expect.objectContaining({ lineCode: "LINE-2", modelCode: "MODEL-C", timeSlotCode: "C", actualQty: 6 }),
+    ]));
+    expect(result.rows.some(({ modelCode }) => !modelCode)).toBe(false);
+  });
+
+  it("uses the dated source sheet when a copied production title still contains an older day", () => {
+    const staleTitle = productionSheet(0, 2);
+    staleTitle.sheet = "26.07";
+
+    const result = parseProductionWorkbook([staleTitle]);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.rows).toHaveLength(5);
+    expect(result.rows.every(({ productionDate }) => productionDate === "2026-07-26")).toBe(true);
+  });
+
   it.each([
     ["AOI", "aoi model", parseAoiWorkbook],
     ["SPI", "SPI MODEL", parseSpiWorkbook],
@@ -127,7 +225,7 @@ describe("legacy Excel adapters", () => {
       [],
       [],
       [],
-      [null, null, "27.07.2026", "DAY", null, null, "MODEL-A", 10, 9],
+      [null, null, "27.07.2026", "NIGHT", null, null, "MODEL-A", 10, 9],
       [null, null, null, null, null, null, "MODEL-B", 8, 7],
       [null, null, null, "TOTAL", null, null, null, 18, 16],
       [null, null, null, null, null, null, "MODEL-A", 6, 5],
@@ -138,16 +236,34 @@ describe("legacy Excel adapters", () => {
     ] }]);
 
     expect(result.rows).toEqual([
-      { sourceSheet, sourceRow: 5, productionDate: "2026-07-27", shiftCode: "DAY", timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-A", processCode: process, inputQty: 10, actualQty: 9, okQty: 9, ngQty: 1, downtimeMinutes: 0, downtimeReasonCode: null, note: "" },
-      { sourceSheet, sourceRow: 6, productionDate: "2026-07-27", shiftCode: "DAY", timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-B", processCode: process, inputQty: 8, actualQty: 7, okQty: 7, ngQty: 1, downtimeMinutes: 0, downtimeReasonCode: null, note: "" },
-      { sourceSheet, sourceRow: 10, productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-B", processCode: process, inputQty: 5, actualQty: 4, okQty: 4, ngQty: 1, downtimeMinutes: 0, downtimeReasonCode: null, note: "" },
+      { sourceSheet, sourceRow: 5, productionDate: "2026-07-27", shiftCode: "NIGHT", timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-A", processCode: process, inputQty: 10, actualQty: 0, okQty: 9, ngQty: 1, downtimeMinutes: 0, downtimeReasonCode: null, note: "", dimensions: { production: null, quality: { inputQty: 10, okQty: 9, ngQty: 1 } }, warnings: [], defects: [] },
+      { sourceSheet, sourceRow: 6, productionDate: "2026-07-27", shiftCode: "NIGHT", timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-B", processCode: process, inputQty: 8, actualQty: 0, okQty: 7, ngQty: 1, downtimeMinutes: 0, downtimeReasonCode: null, note: "", dimensions: { production: null, quality: { inputQty: 8, okQty: 7, ngQty: 1 } }, warnings: [], defects: [] },
+      { sourceSheet, sourceRow: 10, productionDate: "2026-07-28", shiftCode: "NIGHT", timeSlotCode: null, lineCode: "LINE-1", modelCode: "MODEL-B", processCode: process, inputQty: 5, actualQty: 0, okQty: 4, ngQty: 1, downtimeMinutes: 0, downtimeReasonCode: null, note: "", dimensions: { production: null, quality: { inputQty: 5, okQty: 4, ngQty: 1 } }, warnings: [], defects: [] },
     ]);
     expect(result.diagnostics).toEqual([
-      expect.objectContaining({ sourceSheet, sourceRow: 8, code: "missing-required-value", field: "productionDate" }),
       expect.objectContaining({ sourceSheet, sourceRow: 9, code: "invalid-count", field: "counts" }),
-      expect.objectContaining({ sourceSheet, sourceRow: 12, code: "missing-required-value", field: "productionDate" }),
     ]);
     expect(result.diagnostics.some(({ sourceRow }) => sourceRow === 7 || sourceRow === 11)).toBe(false);
+  });
+
+  it.each([
+    ["AOI", "aoi model", parseAoiWorkbook],
+    ["SPI", "SPI MODEL", parseSpiWorkbook],
+  ] as const)("ignores the secondary untargeted %s daily aggregate table", (process, sourceSheet, parse) => {
+    const title = process === "AOI" ? "Data Theo Dõi Hiệu Suất Máy AOI" : "Hiệu Suất Máy SPI";
+    const result = parse([{ sheet: sourceSheet, data: [
+      [null, title],
+      [],
+      [],
+      [null, null, "Date", "Shift", null, null, "Model.", "Input", "OK"],
+      [null, null, "27.07.2026", "DAY", null, null, "MODEL-A", 10, 9],
+      [null, new Date(2026, 6, 27), null, null, null, null, "MODEL-B", 20, 19],
+      [null, null, null, null, null, null, "MODEL-C", 30, 29],
+    ] }]);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ modelCode: "MODEL-A", inputQty: 10, okQty: 9 });
   });
 
   it("returns row-specific diagnostics instead of throwing for malformed in-memory quality data", () => {

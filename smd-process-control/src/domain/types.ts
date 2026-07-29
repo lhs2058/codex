@@ -44,13 +44,15 @@ export interface TimeSlot {
   endsAt: string;
   endDayOffset: 0 | 1;
   sequence: number;
+  active?: boolean;
+  version?: number;
 }
 
 export interface MasterDataSnapshot {
   models: Array<{ id: string; code: string; name: string; active: boolean; version: number }>;
-  processes: Array<{ id: string; code: ProcessCode; name: string; active: boolean }>;
-  lines: Array<{ id: string; code: string; name: string; active: boolean }>;
-  shifts: Array<{ id: string; code: string; name: string; active: boolean }>;
+  processes: Array<{ id: string; code: ProcessCode; name: string; active: boolean; version?: number }>;
+  lines: Array<{ id: string; code: string; name: string; active: boolean; version?: number }>;
+  shifts: Array<{ id: string; code: string; name: string; active: boolean; version?: number }>;
   timeSlots: TimeSlot[];
   downtimeReasons: Array<{ id: string; code: string; name: string; active: boolean; version: number }>;
   standardTimes: StandardTime[];
@@ -169,9 +171,10 @@ export interface DashboardFilters {
 export interface DashboardSnapshot {
   totalActual: number;
   weightedYield: MetricResult;
+  weightedYieldTarget: number | null;
   weightedUtilization: MetricResult;
   attentionCount: number;
-  yields: Array<{ processCode: ProcessCode; lineId: string; result: MetricResult }>;
+  yields: Array<{ processCode: ProcessCode; lineId: string; result: MetricResult; targetPercent: number | null }>;
   utilization: Array<{ lineId: string; result: MetricResult }>;
   downtime: Array<{ reasonId: string; reasonName: string; minutes: number }>;
   entryProgress: Array<{ timeSlotId: string; status: "complete" | "in-progress" | "waiting" }>;

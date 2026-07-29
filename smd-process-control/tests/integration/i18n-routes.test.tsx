@@ -17,6 +17,11 @@ const viewer: AuthState = {
   session,
   profile: { role: "viewer", isActive: true, language: "vi" },
 };
+const admin: AuthState = {
+  status: "ready",
+  session,
+  profile: { role: "admin", isActive: true, language: "ko" },
+};
 
 const master: MasterDataSnapshot = {
   models: [{ id: "model-1", code: "M1", name: "Model 1", active: true, version: 1 }],
@@ -72,6 +77,20 @@ describe("bilingual route shell", () => {
     await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/"));
     expect(screen.queryByRole("link", { name: "Quản trị" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Bảng điều khiển" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps operational admin subroutes inside the admin guard", async () => {
+    render(
+      <MemoryRouter initialEntries={["/admin/audit"]}>
+        <I18nProvider profileLanguage="ko">
+          <AppRoutes auth={admin} />
+          <LocationProbe />
+        </I18nProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/admin/audit"));
+    expect(screen.getByRole("heading", { name: "기준정보 관리" })).toBeInTheDocument();
   });
 
   it("rolls back the picker and exposes a localized error when persistence fails", async () => {

@@ -28,9 +28,10 @@ const master: MasterDataSnapshot = {
 const snapshot: DashboardSnapshot = {
   totalActual: 0,
   weightedYield: { status: "not-calculable", reason: "zero-input" },
+  weightedYieldTarget: null,
   weightedUtilization: { status: "not-calculable", reason: "zero-net-time" },
   attentionCount: 0,
-  yields: [{ processCode: "AOI", lineId: "line-1", result: { status: "not-calculable", reason: "zero-input" } }],
+  yields: [{ processCode: "AOI", lineId: "line-1", result: { status: "not-calculable", reason: "zero-input" }, targetPercent: null }],
   utilization: [{ lineId: "line-1", result: { status: "not-calculable", reason: "zero-net-time" } }],
   downtime: [],
   entryProgress: [{ timeSlotId: "slot-a", status: "waiting" }],

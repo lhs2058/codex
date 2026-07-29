@@ -32,6 +32,23 @@ function legacyKind(sheetName: string): Exclude<WorkbookKind, "standard" | "unkn
   return null;
 }
 
+function preservedQualityKind(sheet: WorkbookSheet): Extract<WorkbookKind, "aoi" | "spi" | "ict" | "xray"> | null {
+  const inspected = sheet.data.slice(0, HEADER_ROW_LIMIT);
+  const title = inspected.flatMap((row) => row.slice(0, HEADER_COLUMN_LIMIT)).map(normalizeCell)
+    .find((cell) => cell.includes("hieu suat") && /\b(aoi|spi|ict|xray)\b/.test(cell));
+  if (!title) return null;
+  const cells = new Set(inspected.flatMap((row) =>
+    row.slice(0, HEADER_COLUMN_LIMIT).map(normalizeCell).filter(Boolean)));
+  const hasCountHeaders = cells.has("date")
+    && cells.has("input")
+    && (cells.has("ok") || cells.has("output") || cells.has("ouput"));
+  if (!hasCountHeaders) return null;
+  if (/\baoi\b/.test(title)) return "aoi";
+  if (/\bspi\b/.test(title)) return "spi";
+  if (/\bict\b/.test(title)) return "ict";
+  if (/\bxray\b/.test(title)) return "xray";
+  return null;
+}
 
 export function detectWorkbook(sheets: WorkbookSheet[]): WorkbookDetection {
   const standardMatches = sheets.flatMap((sheet) => {
@@ -50,8 +67,13 @@ export function detectWorkbook(sheets: WorkbookSheet[]): WorkbookDetection {
   const matches = sheets.flatMap((sheet) => {
     const productionLayout = findProductionGroupedLayout(sheet);
     if (productionLayout) return [{ kind: "production" as const, sheet: sheet.sheet, row: productionLayout.groupRow + 1 }];
-    const kind = legacyKind(normalizeCell(sheet.sheet));
+    const kind = preservedQualityKind(sheet) ?? legacyKind(normalizeCell(sheet.sheet));
     if (!kind) return [];
+    if (preservedQualityKind(sheet)) {
+      const row = sheet.data.slice(0, HEADER_ROW_LIMIT).findIndex((candidate) =>
+        candidate.some((cell) => normalizeCell(cell).includes("hieu suat")));
+      return [{ kind, sheet: sheet.sheet, row: row + 1 }];
+    }
     const rows = matchingRows(sheet, kind === "production" ? PRODUCTION_HEADERS : QUALITY_HEADERS);
     return rows.length ? [{ kind, sheet: sheet.sheet, row: rows[0] }] : [];
   }).sort((a, b) => a.kind.localeCompare(b.kind) || a.sheet.localeCompare(b.sheet));
@@ -59,6 +81,13 @@ export function detectWorkbook(sheets: WorkbookSheet[]): WorkbookDetection {
   const kinds = [...new Set(matches.map((match) => match.kind))];
   if (kinds.length === 1) return { kind: kinds[0], diagnostics: [] };
   if (kinds.length > 1) {
+    const ranked = kinds.map((kind) => ({
+      kind,
+      count: new Set(matches.filter((match) => match.kind === kind).map((match) => match.sheet)).size,
+    })).sort((left, right) => right.count - left.count || left.kind.localeCompare(right.kind));
+    if (ranked[0]!.count > ranked[1]!.count) {
+      return { kind: ranked[0]!.kind, diagnostics: [] };
+    }
     return {
       kind: "unknown",
       diagnostics: [{ code: "ambiguous-workbook", message: `Multiple workbook signatures matched: ${matches.map((match) => `${match.kind} (${match.sheet}, row ${match.row})`).join(", ")}` }],

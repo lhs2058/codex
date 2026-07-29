@@ -154,7 +154,15 @@ export function DashboardPage({
     {snapshot && master && <>
       <section className="dashboard-kpis" aria-label={t("kpi.region")}>
         <article><span aria-hidden="true" className="kpi-icon is-blue">▤</span><div><p>{t("kpi.totalActual")}</p><strong>{new Intl.NumberFormat(language === "vi" ? "vi-VN" : "ko-KR").format(snapshot.totalActual)}<small> EA</small></strong><span>{t("kpi.totalActualHint")}</span></div></article>
-        <article><span aria-hidden="true" className="kpi-icon is-green">✓</span><div><p>{t("kpi.averageYield")}</p><strong>{metric(snapshot.weightedYield)}</strong><span>{t("kpi.averageYieldHint")}</span></div></article>
+        <article><span aria-hidden="true" className="kpi-icon is-green">✓</span><div><p>{t("kpi.averageYield")}</p><strong>{metric(snapshot.weightedYield)}</strong><span>{
+          snapshot.weightedYield.status !== "ok"
+            ? t("yield.unavailable")
+            : snapshot.weightedYieldTarget === null
+            ? t("yield.targetMissing")
+            : snapshot.weightedYield.value >= snapshot.weightedYieldTarget
+              ? t("yield.targetMet", { value: snapshot.weightedYieldTarget.toFixed(1) })
+              : t("yield.targetBelow", { value: snapshot.weightedYieldTarget.toFixed(1) })
+        }</span></div></article>
         <article><span aria-hidden="true" className="kpi-icon is-violet">↗</span><div><p>{t("kpi.averageUtilization")}</p><strong>{metric(snapshot.weightedUtilization)}</strong><span>{t("kpi.averageUtilizationHint")}</span></div></article>
         <article><span aria-hidden="true" className="kpi-icon is-orange">!</span><div><p>{t("kpi.attention")}</p><strong>{new Intl.NumberFormat(language === "vi" ? "vi-VN" : "ko-KR").format(snapshot.attentionCount)}<small> {t("unit.item")}</small></strong><span>{t("kpi.attentionHint")}</span></div></article>
       </section>

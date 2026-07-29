@@ -17,7 +17,7 @@ export interface DashboardQualityFilters {
 }
 export interface DashboardQualityRecord {
   id?: string;
-  productionRecordId: string;
+  productionRecordId: string | null;
   lineId: string;
   modelId: string;
   processId: string;
@@ -88,8 +88,23 @@ export function createQualityRepository(client: QualityClient = getSupabaseClien
       };
     },
     async listDashboardQuality(filters: DashboardQualityFilters): Promise<DashboardQualityRecord[]> {
-      if (filters.productionRecordIds.length === 0) return [];
       const rows: Record<string, unknown>[] = [];
+      rows.push(...await readAllPages(
+        () => {
+          let query = (client as DashboardQualityClient).from("quality_records")
+            .select("id,production_record_id,line_id,model_id,process_id,input_qty,ok_qty")
+            .eq("production_date", filters.productionDate)
+            .is("production_record_id", null)
+            .is("deleted_at", null);
+          if (filters.shiftId) query = query.eq("shift_id", filters.shiftId);
+          if (filters.modelId) query = query.eq("model_id", filters.modelId);
+          if (filters.lineId) query = query.eq("line_id", filters.lineId);
+          if (filters.processId) query = query.eq("process_id", filters.processId);
+          return query;
+        },
+        "dashboard_daily_quality_lookup_failed",
+        (row) => String(row.id),
+      ));
       for (const productionIdChunk of chunkIds(filters.productionRecordIds)) {
         rows.push(...await readAllPages(
           () => (client as DashboardQualityClient).from("quality_records")
@@ -101,9 +116,9 @@ export function createQualityRepository(client: QualityClient = getSupabaseClien
           (row) => String(row.id),
         ));
       }
-      return rows.map((row) => ({
+      return [...new Map(rows.map((row) => [String(row.id), row])).values()].map((row) => ({
         id: String(row.id),
-        productionRecordId: String(row.production_record_id),
+        productionRecordId: row.production_record_id === null ? null : String(row.production_record_id),
         lineId: String(row.line_id),
         modelId: String(row.model_id),
         processId: String(row.process_id),
