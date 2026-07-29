@@ -39,7 +39,10 @@ begin
   into batch_owner
   from public.upload_batches as batch
   where batch.id = p_batch_id
-    and batch.deleted_at is null;
+    and batch.deleted_at is null
+  -- Shared lock order with stage_upload_candidates:
+  -- upload_batches row -> candidate rows -> delegated detail commit.
+  for update;
 
   if not found then
     raise exception using

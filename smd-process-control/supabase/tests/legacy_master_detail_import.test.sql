@@ -261,6 +261,45 @@ select ok(
 );
 select ok(
   (
+    with function_text as (
+      select lower(pg_get_functiondef(
+        'public.commit_upload_batch(uuid,boolean)'::regprocedure
+      )) as definition
+    )
+    select position('for update' in definition) > 0
+      and position('for update' in definition)
+        < position(
+          'from public.upload_master_candidates' in definition
+        )
+      and position(
+        'from public.upload_master_candidates' in definition
+      ) < position(
+        'return public.commit_upload_batch_v26_impl' in definition
+      )
+    from function_text
+  )
+  and (
+    with function_text as (
+      select lower(pg_get_functiondef(
+        'public.stage_upload_candidates(uuid,jsonb,jsonb)'::regprocedure
+      )) as definition
+    )
+    select position('for update' in definition) > 0
+      and position('for update' in definition)
+        < position(
+          'from public.upload_master_candidates' in definition
+        )
+      and position(
+        'from public.upload_master_candidates' in definition
+      ) < position(
+        'insert into public.upload_master_candidates' in definition
+      )
+    from function_text
+  ),
+  'commit and staging acquire the same batch lock before candidate access'
+);
+select ok(
+  (
     select count(*) = 4
     from pg_proc as procedure
     join pg_namespace as namespace

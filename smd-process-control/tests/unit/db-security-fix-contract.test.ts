@@ -106,6 +106,12 @@ describe("final database and security migration contracts", () => {
 
   it("guards operator commits with immutable candidates and exposes an import-only snapshot", () => {
     const sql = readMigration("026_secure_operator_import_snapshot.sql");
+    const wrapper = sql.match(
+      /create function public\.commit_upload_batch\([\s\S]*?as \$\$([\s\S]*?)\$\$;/i,
+    )?.[1]?.toLowerCase();
+    const staging = readMigration("023_legacy_master_detail_import.sql").match(
+      /create or replace function public\.stage_upload_candidates\([\s\S]*?as \$\$([\s\S]*?)\$\$;/i,
+    )?.[1]?.toLowerCase();
 
     expect(sql).toMatch(/alter function public\.commit_upload_batch\(uuid,\s*boolean\)\s+rename to commit_upload_batch_v26_impl/i);
     expect(sql).toMatch(/revoke all on function public\.commit_upload_batch_v26_impl\(uuid,\s*boolean\)/i);
@@ -122,6 +128,20 @@ describe("final database and security migration contracts", () => {
     expect(sql).toMatch(/from public\.standard_times as standard_time[\s\S]*where standard_time\.deleted_at is null/i);
     expect(sql).toMatch(/revoke all on function public\.list_import_master_data\(\)\s+from public, anon, authenticated/i);
     expect(sql).toMatch(/grant execute on function public\.list_import_master_data\(\)\s+to authenticated/i);
+    expect(wrapper).toBeDefined();
+    expect(staging).toBeDefined();
+    const wrapperBatchLock = wrapper!.indexOf("for update");
+    const wrapperCandidateRead = wrapper!.indexOf("from public.upload_master_candidates");
+    const wrapperDelegate = wrapper!.indexOf("return public.commit_upload_batch_v26_impl");
+    expect(wrapperBatchLock).toBeGreaterThan(-1);
+    expect(wrapperBatchLock).toBeLessThan(wrapperCandidateRead);
+    expect(wrapperCandidateRead).toBeLessThan(wrapperDelegate);
+    const stagingBatchLock = staging!.indexOf("for update");
+    const stagingCandidateRead = staging!.indexOf("from public.upload_master_candidates");
+    const stagingCandidateInsert = staging!.indexOf("insert into public.upload_master_candidates");
+    expect(stagingBatchLock).toBeGreaterThan(-1);
+    expect(stagingBatchLock).toBeLessThan(stagingCandidateRead);
+    expect(stagingCandidateRead).toBeLessThan(stagingCandidateInsert);
   });
 
   it("rejects inactive manual dimensions and exposes hardened optimistic admin RPCs only to intended roles", () => {
