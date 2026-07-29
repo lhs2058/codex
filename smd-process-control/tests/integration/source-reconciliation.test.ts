@@ -166,7 +166,12 @@ function stagingClient(batchId: string): UploadRepositoryClient {
         ? () => ({ select: () => ({ single: async () => ({ data: { id: batchId }, error: null }) }) })
         : vi.fn().mockResolvedValue({ data: null, error: null }),
     })) as UploadRepositoryClient["from"],
-    rpc: vi.fn(),
+    rpc: vi.fn(async (name: string) => ({
+      data: name === "stage_upload_candidates"
+        ? { batchId, masterCandidateCount: 0, standardTimeCandidateCount: 0 }
+        : null,
+      error: null,
+    })),
   };
 }
 
@@ -227,7 +232,9 @@ describe("preserved source workbook reconciliation", () => {
         listMasterData: async () => registeredMasters(result.rows),
         findExisting: async () => null,
       });
-      const review = await repository.stageUpload(new File([bytesBefore], `${expected.fileNameHash}.xlsx`));
+      const workbook = new File([bytesBefore], `${expected.fileNameHash}.xlsx`);
+      Object.defineProperty(workbook, "arrayBuffer", { value: async () => bytesBefore.buffer.slice(bytesBefore.byteOffset, bytesBefore.byteOffset + bytesBefore.byteLength) });
+      const review = await repository.stageUpload(workbook);
       expect(review.conflictCount).toBe(0);
       expect(review.unknownMasterDataCount).toBe(0);
       expect(review).toMatchObject({ newCount: result.rows.length, errorCount: 0 });
