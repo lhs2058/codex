@@ -11,6 +11,10 @@ import {
 } from "../../src/data/repositories/upload-repository";
 import type { NormalizedImportRow, WorkbookSheet } from "../../src/excel/contracts";
 import { detectWorkbook } from "../../src/excel/detect-workbook";
+import { deriveLegacyCandidates } from "../../src/upload/legacy-master-candidates";
+
+const CAPACITY_TIME_SLOTS = new Set(["A", "B", "C", "D", "E"]);
+const PRODUCTION_PROCESS_CODES = new Set<ProcessCode>(["SPI", "AOI", "XRAY", "ICT", "ROUTER"]);
 
 type Representative = {
   fileNameHash: string;
@@ -204,10 +208,7 @@ describe("preserved source workbook reconciliation", () => {
     const entries = await fs.readdir(sourceDirectory!);
     expect(entries.filter((name) => name.toLowerCase().endsWith(".xlsx"))).toHaveLength(5);
     const byHash = new Map(entries.map((name) => [hash(name), path.join(sourceDirectory!, name)]));
-    const counts: Array<{
-      kind: string;
-      parsed: number;
-    }> = [];
+    const counts: Partial<Record<Representative["kind"], number>> = {};
 
     for (const expected of representatives) {
       const sourceFile = byHash.get(expected.fileNameHash);
@@ -219,8 +220,23 @@ describe("preserved source workbook reconciliation", () => {
       expect(detectWorkbook(sheets)).toEqual({ kind: expected.kind, diagnostics: [] });
       const result = parseDetectedWorkbook(sheets);
       expect(result.kind).toBe(expected.kind);
+      expect(result.rows.every(({ sourceSheet, sourceRow }) =>
+        sourceSheet.trim().length > 0
+        && Number.isInteger(sourceRow)
+        && sourceRow > 0)).toBe(true);
       expect(result.diagnostics.every((diagnostic) =>
         diagnostic.sourceSheet.length > 0 && diagnostic.sourceRow > 0)).toBe(true);
+      const dailyQualityRows = result.rows.filter((candidate) =>
+        candidate.dimensions.quality !== null
+        && (
+          expected.kind === "ict"
+          || expected.kind === "xray"
+          || /model/i.test(candidate.sourceSheet)
+        ));
+      if (expected.kind !== "production") {
+        expect(dailyQualityRows.length).toBeGreaterThan(0);
+        expect(dailyQualityRows.every(({ timeSlotCode }) => timeSlotCode === null)).toBe(true);
+      }
       const row = result.rows.find((candidate) =>
         candidate.sourceSheet === expected.sourceSheet
         && candidate.sourceRow === expected.sourceRow
@@ -253,13 +269,17 @@ describe("preserved source workbook reconciliation", () => {
       expect(review.unknownMasterDataCount).toBe(0);
       expect(review.newCount + review.conflictCount + review.errorCount).toBe(result.rows.length + result.diagnostics.length);
       expect(review.rows.length + review.diagnostics.length).toBeLessThanOrEqual(200);
-      counts.push({
-        kind: expected.kind,
-        parsed: result.rows.length,
-      });
+      counts[expected.kind] = result.rows.length;
       if (expected.kind === "production") {
         expect(result.diagnostics).toEqual([]);
         expect(result.rows).toHaveLength(14_708);
+        expect(result.capacityEvidence.length).toBeGreaterThan(0);
+        expect(result.capacityEvidence.filter(({ timeSlotCode }) =>
+          !CAPACITY_TIME_SLOTS.has(timeSlotCode))).toEqual([]);
+        const candidates = deriveLegacyCandidates(result, registeredMasters(result.rows));
+        expect(candidates.standardTimeCandidates.length).toBeGreaterThan(0);
+        expect(candidates.standardTimeCandidates.filter(({ processCode }) =>
+          !PRODUCTION_PROCESS_CODES.has(processCode))).toEqual([]);
         expect(review.newCount + review.errorCount).toBe(14_708);
       } else {
         expect(review.rows.every((candidate) =>
@@ -269,12 +289,12 @@ describe("preserved source workbook reconciliation", () => {
       const bytesAfter = await fs.readFile(sourceFile!);
       expect(crypto.createHash("sha256").update(bytesAfter).digest("hex").slice(0, 16)).toBe(expected.contentHash);
     }
-    expect(counts).toEqual([
-      { kind: "aoi", parsed: 239 },
-      { kind: "spi", parsed: 271 },
-      { kind: "ict", parsed: 90 },
-      { kind: "xray", parsed: 262 },
-      { kind: "production", parsed: 14_708 },
-    ]);
+    expect(counts).toEqual({
+      aoi: 239,
+      spi: 271,
+      ict: 90,
+      xray: 262,
+      production: 14_708,
+    });
   }, 120_000);
 });

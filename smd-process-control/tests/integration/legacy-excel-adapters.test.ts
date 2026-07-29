@@ -174,6 +174,11 @@ describe("legacy Excel adapters", () => {
   it("expands production A-E cells, retains actuals and downtime", async () => {
     const result = parseProductionWorkbook(await readFixture("production-sample.xlsx"));
     expect(result.rows).toHaveLength(35);
+    expect([...new Set(result.capacityEvidence.map(({ timeSlotCode }) => timeSlotCode))]).toEqual([
+      "A", "B", "C", "D", "E",
+    ]);
+    expect(result.capacityEvidence.every(({ sourceSheet, sourceRow }) =>
+      sourceSheet.length > 0 && Number.isInteger(sourceRow) && sourceRow > 0)).toBe(true);
     expect(result.rows).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceSheet: "25.07", sourceRow: 7, productionDate: "2026-07-25", lineCode: "LINE-1", modelCode: "MODEL-A", processCode: "AOI", timeSlotCode: "A", inputQty: 0, actualQty: 8, downtimeMinutes: 5, note: "setup" }),
       expect.objectContaining({ sourceSheet: "25.07", sourceRow: 11, lineCode: "XRAY-1", modelCode: "MODEL-A", processCode: "XRAY", timeSlotCode: "E", actualQty: 4 }),

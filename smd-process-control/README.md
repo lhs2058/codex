@@ -84,6 +84,33 @@ Download the supported import template from **엑셀 업로드 → 표준 양식
 
 Successful uploads preserve the received workbook in the private `smd-upload-originals` bucket. Database rows do not replace the original file. Do not commit any source workbook or copy it into test fixtures.
 
+### Legacy workbook operating workflow
+
+1. An operator uploads a working copy, not the read-only source. Before Storage is used, the browser computes the workbook SHA-256. The operator reviews the filename, hash, workbook kind, new/conflict/error totals, source-located diagnostics, paged detail rows, candidate status, and CAPA evidence. An operator can complete a batch only when all referenced master/ST candidates already exist and no duplicate replacement or other admin decision is required.
+2. An admin reviews every new or conflicting model, line, DAY/NIGHT shift, time slot, downtime reason, and standard-time candidate. New or changed master names and ST values require explicit approval. Error candidates cannot be committed; inactive or structurally incompatible existing masters remain conflicts rather than being silently recreated.
+3. The final commit revalidates the staged snapshot in the database. Master data, standard times, production/quality rows, downtime, defects, upload-row outcomes, and the completed batch result are written in one transaction. Any validation, permission, concurrency, or insert error rolls back the entire final commit; the private original and the staged review records remain available for investigation.
+
+The fixed slots use the following production schedule:
+
+| Shift | A | B | C | D | E |
+| --- | --- | --- | --- | --- | --- |
+| DAY | 07:30–09:30 | 09:30–13:00 | 13:00–15:00 | 15:00–17:00 | 17:00–19:30 |
+| NIGHT | 19:30–21:30 | 21:30–01:00 (+1 day) | 01:00–03:00 | 03:00–05:00 | 05:00–07:30 |
+
+The NIGHT production date is the shift-start date recorded by the workbook. NIGHT B crosses midnight, and the after-midnight C–E results still belong to that same shift-start production date; do not change them to the next calendar date.
+
+For each valid CAPA cell, the observation is `slot planned seconds / CAPA quantity`. Observations are grouped by model, line, and process; the unrounded median is the ST basis and the proposed value is rounded to three decimals. Any observation whose absolute deviation from the median is greater than 5% makes the ST candidate a conflict requiring admin review. Exactly 5% is not a deviation conflict. Blank, zero, or invalid CAPA is retained as a non-blocking ST warning and is excluded from the median; it does not discard an otherwise valid production detail.
+
+Detail duplicates are staged as conflicts. The commit contract uses `replaceConflicts=false` to skip them and `replaceConflicts=true` to replace them, and replacement is admin-only. The web review deliberately keeps final commit disabled while a detail conflict is unresolved, so an admin must explicitly choose replacement or leave the batch staged for correction; an operator cannot replace a duplicate.
+
+The SHA-256 lookup considers completed batches only. Re-uploading bytes whose hash already completed returns the prior batch summary and first detail page without uploading another Storage object or creating another batch. A staged or failed hash is not treated as completed. Received originals are retained under a private Storage path; only the owner/admin policies and short-lived signed URLs may expose them.
+
+If staging fails after the server created a batch, retain the structured `batchId` from the repository error or application telemetry and **do not select the workbook again**. The current browser screen has no batch-ID reopen field, so recovery is an authenticated support/API operation:
+
+1. Confirm the batch is still `staged` or `validated`, belongs to the operator (or is being handled by an admin), and that its original Storage path exists.
+2. Inspect the batch's master/ST candidate tables. If candidate staging did not complete, retry `stage_upload_candidates` for that same batch with the already validated candidate payload; if candidates already exist, do not stage them a second time.
+3. Reload detail with `list_upload_detail_page` (200 rows per page), resolve required admin approvals, and call the appropriate commit RPC with the same batch ID. Never create a replacement batch merely to recover a paging or candidate-staging failure.
+
 The five-source reconciliation test uses anonymized SHA-256 prefixes for filenames, models, and lines and literal quantity expectations—never displayed percentage cells. It is critical and deliberately fails when its explicit source directory is missing:
 
 ```powershell
