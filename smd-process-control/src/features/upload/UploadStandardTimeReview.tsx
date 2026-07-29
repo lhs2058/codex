@@ -2,6 +2,7 @@ import type React from "react";
 import type { UploadApproval } from "../../data/repositories/upload-repository";
 import type { AppRole, UploadStandardTimeCandidate } from "../../domain/types";
 import { useI18n, type TranslationKey } from "../../i18n";
+import { UploadStatusBadge } from "./UploadStatusBadge";
 
 const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.standardTimeCandidateReview": "Standard time candidate review",
@@ -91,7 +92,7 @@ export function UploadStandardTimeReview(props: {
       return <article key={candidate.key} className="upload-standard-time-candidate">
         <h3>{labelSuffix}</h3>
         <dl>
-          <div><dt>{t("common.status")}</dt><dd><span className={`upload-status-badge is-${candidate.status}`}>{statusLabel[candidate.status]}</span></dd></div>
+          <div><dt>{t("common.status")}</dt><dd><UploadStatusBadge status={candidate.status}>{statusLabel[candidate.status]}</UploadStatusBadge></dd></div>
           <div><dt>{t("upload.minimum")}</dt><dd>{candidate.minimum}</dd></div>
           <div><dt>{t("upload.median")}</dt><dd>{candidate.median}</dd></div>
           <div><dt>{t("upload.maximum")}</dt><dd>{candidate.maximum}</dd></div>

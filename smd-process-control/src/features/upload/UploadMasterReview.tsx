@@ -2,6 +2,7 @@ import type React from "react";
 import type { UploadApproval } from "../../data/repositories/upload-repository";
 import type { AppRole, UploadMasterCandidate } from "../../domain/types";
 import { useI18n, type TranslationKey } from "../../i18n";
+import { UploadStatusBadge } from "./UploadStatusBadge";
 
 const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.masterCandidateReview": "Master candidate review",
@@ -106,7 +107,7 @@ export function UploadMasterReview(props: {
                   />
                 </label>
               </td>
-              <td><span className={`upload-status-badge is-${candidate.status}`}>{statusLabel[candidate.status]}</span></td>
+              <td><UploadStatusBadge status={candidate.status}>{statusLabel[candidate.status]}</UploadStatusBadge></td>
               <td>{candidate.conflictReason ?? "—"}</td>
               <td>{candidate.resolvable ? t("upload.resolvable") : t("upload.blocked")}</td>
               <td>{candidate.messages.join("; ") || "—"}</td>

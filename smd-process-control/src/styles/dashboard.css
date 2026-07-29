@@ -687,12 +687,12 @@
 
 .upload-status-badge.is-new {
   background: #e6f8f1;
-  color: #0b835e;
+  color: #097958;
 }
 
 .upload-status-badge.is-conflict {
   background: #fff0df;
-  color: #b85e0b;
+  color: #a45100;
 }
 
 .upload-status-badge.is-error {

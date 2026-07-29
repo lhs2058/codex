@@ -1,5 +1,6 @@
 import type { UploadReview } from "../../domain/types";
 import { useI18n, type TranslationKey } from "../../i18n";
+import { UploadStatusBadge } from "./UploadStatusBadge";
 
 const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.review": "Row review",
@@ -70,7 +71,7 @@ export function UploadReviewTable({
         {review.rows.map((row) => <tr key={`${row.sourceSheet}-${row.sourceRow}`}>
           <td>{row.sourceSheet}</td>
           <td>{row.sourceRow}</td>
-          <td><span className={`upload-status-badge is-${row.status}`}>{statusLabel[row.status]}</span></td>
+          <td><UploadStatusBadge status={row.status}>{statusLabel[row.status]}</UploadStatusBadge></td>
           <td>{row.productionDate}</td>
           <td>{row.lineCode}</td>
           <td>{row.modelCode}</td>
@@ -80,7 +81,7 @@ export function UploadReviewTable({
         {review.diagnostics.map((diagnostic) => <tr key={`diagnostic-${diagnostic.sourceSheet}-${diagnostic.sourceRow}`}>
           <td>{diagnostic.sourceSheet}</td>
           <td>{diagnostic.sourceRow}</td>
-          <td><span className="upload-status-badge is-error">{t("upload.statusError")}</span></td>
+          <td><UploadStatusBadge status="error">{t("upload.statusError")}</UploadStatusBadge></td>
           <td colSpan={4}>—</td>
           <td>{diagnostic.messages.join("; ")}</td>
         </tr>)}

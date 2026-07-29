@@ -16,6 +16,7 @@ import {
   isBlockedStandardTimeCandidate,
   UploadStandardTimeReview,
 } from "./UploadStandardTimeReview";
+import { UploadStatusBadge } from "./UploadStatusBadge";
 
 const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.title": "Workbook upload",
@@ -294,10 +295,10 @@ export function UploadPage({
       {isLegacyReview(review) && <>
         <section aria-label={t("upload.masterStatusCounts")}>
           <h2>{t("upload.masterData")}</h2>
-          <p><span className="upload-status-badge is-existing">{t("upload.existing")}</span>: {review.masterCandidates.filter((candidate) => candidate.status === "existing").length}</p>
-          <p><span className="upload-status-badge is-new">{t("upload.new")}</span>: {review.masterCandidates.filter((candidate) => candidate.status === "new").length}</p>
-          <p><span className="upload-status-badge is-conflict">{t("upload.conflict")}</span>: {review.masterCandidates.filter((candidate) => candidate.status === "conflict").length}</p>
-          <p><span className="upload-status-badge is-error">{t("upload.error")}</span>: {review.masterCandidates.filter((candidate) => candidate.status === "error").length}</p>
+          <p><UploadStatusBadge status="existing">{t("upload.existing")}</UploadStatusBadge>: {review.masterCandidates.filter((candidate) => candidate.status === "existing").length}</p>
+          <p><UploadStatusBadge status="new">{t("upload.new")}</UploadStatusBadge>: {review.masterCandidates.filter((candidate) => candidate.status === "new").length}</p>
+          <p><UploadStatusBadge status="conflict">{t("upload.conflict")}</UploadStatusBadge>: {review.masterCandidates.filter((candidate) => candidate.status === "conflict").length}</p>
+          <p><UploadStatusBadge status="error">{t("upload.error")}</UploadStatusBadge>: {review.masterCandidates.filter((candidate) => candidate.status === "error").length}</p>
         </section>
         <fieldset disabled={busy === "commit"}>
           <UploadMasterReview
@@ -316,9 +317,9 @@ export function UploadPage({
       </>}
       <section aria-label={t("upload.detailStatusCounts")}>
         <h2>{t("upload.detailStatusCounts")}</h2>
-        <p><span className="upload-status-badge is-new">{t("upload.new")}</span>: {review.newCount}</p>
-        <p><span className="upload-status-badge is-conflict">{t("upload.conflict")}</span>: {review.conflictCount}</p>
-        <p><span className="upload-status-badge is-error">{t("upload.error")}</span>: {review.errorCount}</p>
+        <p><UploadStatusBadge status="new">{t("upload.new")}</UploadStatusBadge>: {review.newCount}</p>
+        <p><UploadStatusBadge status="conflict">{t("upload.conflict")}</UploadStatusBadge>: {review.conflictCount}</p>
+        <p><UploadStatusBadge status="error">{t("upload.error")}</UploadStatusBadge>: {review.errorCount}</p>
         <label>
           {t("upload.detailStatus")}
           <select

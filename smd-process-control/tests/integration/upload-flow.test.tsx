@@ -15,6 +15,29 @@ import { UploadPage } from "../../src/features/upload/UploadPage";
 import { UploadReviewTable } from "../../src/features/upload/UploadReviewTable";
 import { UploadStandardTimeReview } from "../../src/features/upload/UploadStandardTimeReview";
 import { I18nProvider, type Language } from "../../src/i18n";
+import "../../src/styles/dashboard.css";
+
+function colorChannels(color: string): [number, number, number] {
+  const channels = color.match(/\d+(?:\.\d+)?/g)?.slice(0, 3).map(Number);
+  if (!channels || channels.length !== 3) throw new Error(`Unsupported color: ${color}`);
+  return channels as [number, number, number];
+}
+
+function relativeLuminance(color: string): number {
+  const channels = colorChannels(color).map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * channels[0]! + 0.7152 * channels[1]! + 0.0722 * channels[2]!;
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const light = Math.max(relativeLuminance(foreground), relativeLuminance(background));
+  const dark = Math.min(relativeLuminance(foreground), relativeLuminance(background));
+  return (light + 0.05) / (dark + 0.05);
+}
 
 const masterData: MasterDataSnapshot = {
   models: [{ id: "m", code: "MODEL-A", name: "Model A", active: true, version: 1 }],
@@ -988,6 +1011,25 @@ describe("upload repository", () => {
 });
 
 describe("UploadReviewTable", () => {
+  it("keeps normal-size status badge text at WCAG AA contrast", () => {
+    const { container } = render(<UploadReviewTable review={review({
+      rows: [
+        { ...parsedRow, sourceRow: 2, status: "new", messages: [] },
+        { ...parsedRow, sourceRow: 3, status: "conflict", messages: [] },
+      ],
+    })} />);
+
+    for (const selector of [".upload-status-badge.is-new", ".upload-status-badge.is-conflict"]) {
+      const badge = container.querySelector<HTMLElement>(selector);
+      expect(badge).not.toBeNull();
+      const styles = getComputedStyle(badge!);
+      expect(
+        contrastRatio(styles.color, styles.backgroundColor),
+        `${selector} must meet WCAG AA normal-text contrast`,
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it("renders only the supplied server page and requests the next page", () => {
     const rows = Array.from({ length: 200 }, (_, index) => ({
       ...parsedRow,
@@ -1140,6 +1182,33 @@ describe("UploadPage", () => {
     ]) {
       expect(screen.queryByText(fallback, { exact: true })).not.toBeInTheDocument();
     }
+  });
+
+  it("uses natural Vietnamese terms for every worksheet and workbook label", async () => {
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(legacyReview({
+        duplicateCompletedBatch: true,
+      })),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn(),
+    };
+    const { container } = render(
+      <I18nProvider profileLanguage="vi">
+        <UploadPage repository={repository} role="admin" />
+      </I18nProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("Tệp Excel"), { target: { files: [file()] } });
+
+    expect(await screen.findByRole("region", { name: "Tệp Excel nguồn" })).toBeInTheDocument();
+    expect(screen.getByText("Loại tệp Excel")).toBeInTheDocument();
+    expect(screen.getByText("Tệp Excel này đã được ghi dữ liệu.")).toBeInTheDocument();
+    expect(screen.getAllByText("Trang tính").length).toBeGreaterThan(0);
+
+    const accessibleCopy = [...container.querySelectorAll<HTMLElement>("[aria-label]")]
+      .map((element) => element.getAttribute("aria-label"))
+      .join(" ");
+    expect(`${container.textContent ?? ""} ${accessibleCopy}`).not.toMatch(/\b(?:Sheet|Workbook)\b/i);
   });
 
   it("shows a valid review and commits it once", async () => {
