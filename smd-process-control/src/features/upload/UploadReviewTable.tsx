@@ -1,4 +1,3 @@
-import { useState } from "react";
 import type { UploadReview } from "../../domain/types";
 import { useI18n, type TranslationKey } from "../../i18n";
 
@@ -20,10 +19,24 @@ const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.showingRows": "Showing {shown} of {total} rows",
 };
 
-export function UploadReviewTable({ review }: { review: UploadReview }) {
+export function UploadReviewTable({
+  review,
+  page = 1,
+  total = review.rows.length + review.diagnostics.length,
+  pageSize = 200,
+  busy = false,
+  onPageChange,
+}: {
+  review: UploadReview;
+  page?: number;
+  total?: number;
+  pageSize?: number;
+  busy?: boolean;
+  onPageChange?(page: number): void;
+}) {
   const { t } = useI18n(legacy);
-  const [visibleCount, setVisibleCount] = useState(200);
-  const visibleRows = review.rows.slice(0, visibleCount);
+  const shown = Math.min((page - 1) * pageSize + review.rows.length + review.diagnostics.length, total);
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const statusLabel = {
     new: t("upload.statusNew"),
     conflict: t("upload.statusConflict"),
@@ -32,8 +45,8 @@ export function UploadReviewTable({ review }: { review: UploadReview }) {
   return <section aria-label={t("upload.reviewRegion")}>
     <h2>{t("upload.review")}</h2>
     <p>{t("upload.showingRows", {
-      shown: Math.min(visibleCount, review.rows.length),
-      total: review.rows.length,
+      shown,
+      total,
     })}</p>
     <div className="table-scroll" tabIndex={0} role="region" aria-label={t("upload.reviewRegion")}>
     <table className="upload-review-table">
@@ -50,7 +63,7 @@ export function UploadReviewTable({ review }: { review: UploadReview }) {
         </tr>
       </thead>
       <tbody>
-        {visibleRows.map((row) => <tr key={`${row.sourceSheet}-${row.sourceRow}`}>
+        {review.rows.map((row) => <tr key={`${row.sourceSheet}-${row.sourceRow}`}>
           <td>{row.sourceSheet}</td>
           <td>{row.sourceRow}</td>
           <td>{statusLabel[row.status]}</td>
@@ -69,11 +82,22 @@ export function UploadReviewTable({ review }: { review: UploadReview }) {
         </tr>)}
       </tbody>
     </table></div>
-    {visibleCount < review.rows.length && <button
-      type="button"
-      onClick={() => setVisibleCount((current) => current + 200)}
-    >
-      {t("upload.showMoreRows")}
-    </button>}
+    <nav aria-label="Detail pages">
+      <button
+        type="button"
+        disabled={busy || page <= 1 || !onPageChange}
+        onClick={() => onPageChange?.(page - 1)}
+      >
+        Previous page
+      </button>
+      <span>Page {page}</span>
+      <button
+        type="button"
+        disabled={busy || page >= pageCount || !onPageChange}
+        onClick={() => onPageChange?.(page + 1)}
+      >
+        Next page
+      </button>
+    </nav>
   </section>;
 }

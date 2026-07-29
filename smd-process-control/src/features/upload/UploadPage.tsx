@@ -1,11 +1,21 @@
 import { useRef, useState } from "react";
 import { useAuthState } from "../../auth/AuthProvider";
 import { createMasterDataRepository, type MasterDataRepository } from "../../data/repositories/master-data-repository";
-import { createUploadRepository, type UploadRepository } from "../../data/repositories/upload-repository";
+import {
+  createUploadRepository,
+  type LegacyUploadReview,
+  type UploadApproval,
+  type UploadRepository,
+} from "../../data/repositories/upload-repository";
 import type { AppRole, UploadReview } from "../../domain/types";
 import { downloadStandardTemplate } from "../../excel/template";
-import { UploadReviewTable } from "./UploadReviewTable";
 import { useI18n, type TranslationKey } from "../../i18n";
+import { UploadMasterReview } from "./UploadMasterReview";
+import { UploadReviewTable } from "./UploadReviewTable";
+import {
+  isBlockedStandardTimeCandidate,
+  UploadStandardTimeReview,
+} from "./UploadStandardTimeReview";
 
 const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.title": "Workbook upload",
@@ -33,6 +43,59 @@ let defaultMasterRepository: Pick<MasterDataRepository, "listMasterData"> | unde
 const uploadRepository = () => defaultUploadRepository ??= createUploadRepository();
 const masterRepository = () => defaultMasterRepository ??= createMasterDataRepository();
 
+function isLegacyReview(review: UploadReview): review is LegacyUploadReview {
+  return "masterCandidates" in review
+    && "standardTimeCandidates" in review
+    && "sourceFileName" in review;
+}
+
+function initialApproval(review: UploadReview): UploadApproval {
+  if (!isLegacyReview(review)) return { masterCandidates: [], standardTimeCandidates: [] };
+  return {
+    masterCandidates: review.masterCandidates
+      .filter((candidate) => candidate.status === "new" || candidate.status === "conflict")
+      .map((candidate) => ({
+        key: candidate.key,
+        approved: candidate.approved,
+        approvedName: candidate.proposedName,
+      })),
+    standardTimeCandidates: review.standardTimeCandidates
+      .filter((candidate) => candidate.status === "new" || candidate.status === "conflict")
+      .map((candidate) => ({
+        key: candidate.key,
+        approved: candidate.approved,
+        approvedSecondsPerUnit: candidate.approvedSecondsPerUnit
+          ?? candidate.proposedSecondsPerUnit,
+        effectiveFrom: candidate.effectiveFrom,
+        effectiveTo: candidate.effectiveTo,
+      })),
+  };
+}
+
+function candidatesResolved(review: UploadReview, approval: UploadApproval): boolean {
+  if (!isLegacyReview(review)) return true;
+  if (review.masterCandidates.some((candidate) => candidate.status === "error")) return false;
+  if (review.standardTimeCandidates.some(isBlockedStandardTimeCandidate)) return false;
+
+  const mastersResolved = review.masterCandidates.every((candidate) => {
+    if (candidate.status === "existing") return true;
+    const selected = approval.masterCandidates.find((item) => item.key === candidate.key);
+    return candidate.status !== "error"
+      && selected?.approved === true
+      && selected.approvedName.trim().length > 0;
+  });
+  const standardTimesResolved = review.standardTimeCandidates.every((candidate) => {
+    if (candidate.status === "existing") return true;
+    const selected = approval.standardTimeCandidates.find((item) => item.key === candidate.key);
+    return candidate.status !== "error"
+      && selected?.approved === true
+      && selected.approvedSecondsPerUnit !== null
+      && Number.isFinite(selected.approvedSecondsPerUnit)
+      && selected.approvedSecondsPerUnit > 0;
+  });
+  return mastersResolved && standardTimesResolved;
+}
+
 export function UploadPage({
   repository,
   masterDataRepository,
@@ -50,7 +113,13 @@ export function UploadPage({
   const repositoryRef = useRef(repository ?? uploadRepository()).current;
   const masterRepositoryRef = useRef(masterDataRepository).current;
   const [review, setReview] = useState<UploadReview | null>(null);
+  const [approval, setApproval] = useState<UploadApproval>({
+    masterCandidates: [],
+    standardTimeCandidates: [],
+  });
   const [replaceConflicts, setReplaceConflicts] = useState(false);
+  const [detailStatus, setDetailStatus] = useState("");
+  const [pageBusy, setPageBusy] = useState(false);
   const [busy, setBusy] = useState<"stage" | "commit" | "download" | null>(null);
   const [error, setError] = useState("");
   const [commitMessage, setCommitMessage] = useState("");
@@ -61,9 +130,13 @@ export function UploadPage({
     setError("");
     setCommitMessage("");
     setReview(null);
+    setApproval({ masterCandidates: [], standardTimeCandidates: [] });
     setReplaceConflicts(false);
+    setDetailStatus("");
     try {
-      setReview(await repositoryRef.stageUpload(file));
+      const nextReview = await repositoryRef.stageUpload(file);
+      setReview(nextReview);
+      setApproval(initialApproval(nextReview));
     } catch (stageError) {
       setError(stageError instanceof Error ? stageError.message : t("upload.stagingFailed"));
     } finally {
@@ -71,12 +144,47 @@ export function UploadPage({
     }
   };
 
+  const loadPage = async (page: number, status = detailStatus) => {
+    if (!review || pageBusy) return;
+    setPageBusy(true);
+    setError("");
+    try {
+      const detail = await repositoryRef.loadDetailPage(
+        review.batchId,
+        page,
+        status || undefined,
+      );
+      setReview((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          rows: detail.rows,
+          diagnostics: detail.diagnostics,
+          ...(isLegacyReview(current)
+            ? { detailPage: detail.page, detailTotal: detail.total }
+            : {}),
+        };
+      });
+    } catch (pageError) {
+      setError(pageError instanceof Error ? pageError.message : t("upload.stagingFailed"));
+    } finally {
+      setPageBusy(false);
+    }
+  };
+
   const commit = async () => {
-    if (!review || busy || review.errorCount > 0 || (review.conflictCount > 0 && !replaceConflicts)) return;
+    if (
+      !review
+      || busy
+      || review.errorCount > 0
+      || !candidatesResolved(review, approval)
+      || (review.conflictCount > 0 && !(currentRole === "admin" && replaceConflicts))
+      || (isLegacyReview(review) && review.duplicateCompletedBatch)
+    ) return;
     setBusy("commit");
     setError("");
     try {
-      const result = await repositoryRef.commitUpload(review.batchId, replaceConflicts);
+      const result = await repositoryRef.commitUpload(review.batchId, replaceConflicts, approval);
       setCommitMessage(t("upload.committed", { inserted: result.insertedCount, replaced: result.replacedCount }));
     } catch (commitError) {
       setError(commitError instanceof Error ? commitError.message : t("upload.commitFailed"));
@@ -99,10 +207,21 @@ export function UploadPage({
     }
   };
 
+  const legacyReview = review && isLegacyReview(review) ? review : null;
+  const hasCandidates = legacyReview !== null
+    && (legacyReview.masterCandidates.length > 0 || legacyReview.standardTimeCandidates.length > 0);
   const commitDisabled = !review
     || busy !== null
+    || pageBusy
     || review.errorCount > 0
-    || (review.conflictCount > 0 && !(currentRole === "admin" && replaceConflicts));
+    || !candidatesResolved(review, approval)
+    || (hasCandidates && currentRole !== "admin")
+    || (review.conflictCount > 0 && !(currentRole === "admin" && replaceConflicts))
+    || (isLegacyReview(review) && review.duplicateCompletedBatch === true);
+  const detailPage = legacyReview?.detailPage ?? 1;
+  const detailTotal = legacyReview
+    ? legacyReview.detailTotal
+    : (review?.rows.length ?? 0) + (review?.diagnostics.length ?? 0);
 
   return <main className="feature-main upload-main">
     <h1>{t("upload.title")}</h1>
@@ -114,15 +233,79 @@ export function UploadPage({
     {busy === "download" && <p role="status" aria-live="polite">{t("upload.preparing")}</p>}
     {error && <p role="alert">{error}</p>}
     {review && <>
+      {isLegacyReview(review) && <section aria-label="Source workbook">
+        <h2>{review.sourceFileName}</h2>
+        <p>Kind: {review.workbookKind}</p>
+        <p>SHA-256: {review.sourceSha256}</p>
+        {review.duplicateCompletedBatch && <p role="status">This workbook was already completed.</p>}
+      </section>}
       <section className="upload-summary" aria-label={t("upload.summary")}>
         <p>{t("upload.new")}: {review.newCount}</p>
         <p>{t("upload.duplicates")}: {review.conflictCount}</p>
         <p>{t("upload.errors")}: {review.errorCount}</p>
         <p>{t("upload.unknownMaster")}: {review.unknownMasterDataCount}</p>
       </section>
-      <UploadReviewTable review={review} />
-      {currentRole === "admin" && review.conflictCount > 0 && <label>
-        <input type="checkbox" checked={replaceConflicts} onChange={(event) => setReplaceConflicts(event.target.checked)} />
+      {isLegacyReview(review) && <>
+        <section aria-label="Master candidate counts">
+          <h2>Master status counts</h2>
+          <p>Existing: {review.masterCandidates.filter((candidate) => candidate.status === "existing").length}</p>
+          <p>New: {review.masterCandidates.filter((candidate) => candidate.status === "new").length}</p>
+          <p>Conflict: {review.masterCandidates.filter((candidate) => candidate.status === "conflict").length}</p>
+          <p>Error: {review.masterCandidates.filter((candidate) => candidate.status === "error").length}</p>
+        </section>
+        <fieldset disabled={busy === "commit"}>
+          <UploadMasterReview
+            candidates={review.masterCandidates}
+            role={currentRole}
+            approvals={approval.masterCandidates}
+            onChange={(masterCandidates) => setApproval((current) => ({ ...current, masterCandidates }))}
+          />
+          <UploadStandardTimeReview
+            candidates={review.standardTimeCandidates}
+            role={currentRole}
+            approvals={approval.standardTimeCandidates}
+            onChange={(standardTimeCandidates) => setApproval((current) => ({ ...current, standardTimeCandidates }))}
+          />
+        </fieldset>
+      </>}
+      <section aria-label="Detail status counts">
+        <h2>Detail status counts</h2>
+        <p>New: {review.newCount}</p>
+        <p>Conflict: {review.conflictCount}</p>
+        <p>Error: {review.errorCount}</p>
+        <label>
+          Detail status
+          <select
+            aria-label="Detail status"
+            value={detailStatus}
+            disabled={pageBusy || busy === "commit"}
+            onChange={(event) => {
+              const status = event.target.value;
+              setDetailStatus(status);
+              void loadPage(1, status);
+            }}
+          >
+            <option value="">All</option>
+            <option value="new">New</option>
+            <option value="conflict">Conflict</option>
+            <option value="error">Error</option>
+          </select>
+        </label>
+      </section>
+      <UploadReviewTable
+        review={review}
+        page={detailPage}
+        total={detailTotal}
+        busy={pageBusy || busy === "commit"}
+        onPageChange={(page) => void loadPage(page)}
+      />
+      {review.conflictCount > 0 && <label>
+        <input
+          type="checkbox"
+          checked={replaceConflicts}
+          disabled={currentRole !== "admin" || busy === "commit"}
+          onChange={(event) => setReplaceConflicts(event.target.checked)}
+        />
         {t("upload.replace")}
       </label>}
       <button type="button" disabled={commitDisabled} onClick={() => void commit()}>

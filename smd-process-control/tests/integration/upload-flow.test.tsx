@@ -8,6 +8,7 @@ import type { ImportParseResult } from "../../src/excel/contracts";
 import {
   createUploadRepository,
   parseDetectedWorkbook,
+  type LegacyUploadReview,
   type UploadRepositoryClient,
 } from "../../src/data/repositories/upload-repository";
 import { UploadPage } from "../../src/features/upload/UploadPage";
@@ -56,6 +57,89 @@ function review(overrides: Partial<UploadReview> = {}): UploadReview {
     unknownMasterDataCount: 0,
     rows: [{ ...parsedRow, status: "new", messages: [] }],
     diagnostics: [],
+    ...overrides,
+  };
+}
+
+const masterCandidate = {
+  key: "model|MODEL-1",
+  entity: "model" as const,
+  code: "MODEL-1",
+  parentCode: null,
+  proposedName: "MODEL-1",
+  status: "new" as const,
+  approved: false,
+  startsAt: null,
+  endsAt: null,
+  endDayOffset: null,
+  sequence: null,
+  messages: [],
+  sources: [{ sheet: "Production", row: 8 }],
+};
+
+const standardTimeCandidate = {
+  key: "MODEL-1|AOI-1|AOI",
+  modelCode: "MODEL-1",
+  lineCode: "AOI-1",
+  processCode: "AOI" as const,
+  status: "conflict" as const,
+  approved: false,
+  proposedSecondsPerUnit: null,
+  approvedSecondsPerUnit: null,
+  minimum: 10,
+  median: 10.5,
+  maximum: 11.1,
+  effectiveFrom: "2026-07-28",
+  effectiveTo: null,
+  messages: ["CAPA evidence deviates by more than 5% from the median"],
+  observations: [
+    {
+      productionDate: "2026-07-28",
+      shiftCode: "DAY",
+      timeSlotCode: "A",
+      capacityQty: 720,
+      plannedSeconds: 7200,
+      secondsPerUnit: 10,
+      sheet: "Production",
+      row: 8,
+    },
+    {
+      productionDate: "2026-07-29",
+      shiftCode: "DAY",
+      timeSlotCode: "A",
+      capacityQty: 685.714,
+      plannedSeconds: 7200,
+      secondsPerUnit: 10.5,
+      sheet: "Production",
+      row: 9,
+    },
+    {
+      productionDate: "2026-07-30",
+      shiftCode: "DAY",
+      timeSlotCode: "A",
+      capacityQty: 648.649,
+      plannedSeconds: 7200,
+      secondsPerUnit: 11.1,
+      sheet: "Production",
+      row: 10,
+    },
+  ],
+};
+
+function legacyReview(overrides: Partial<LegacyUploadReview> = {}): LegacyUploadReview {
+  return {
+    ...review(),
+    sourceFileName: "legacy-production.xlsx",
+    sourceSha256: "a".repeat(64),
+    workbookKind: "production",
+    masterCandidates: [masterCandidate],
+    standardTimeCandidates: [standardTimeCandidate],
+    masterCandidateCount: 1,
+    standardTimeCandidateCount: 1,
+    stWarnings: [],
+    defectCount: 0,
+    detailTotal: 1,
+    detailPage: 1,
     ...overrides,
   };
 }
@@ -859,20 +943,26 @@ describe("upload repository", () => {
 });
 
 describe("UploadReviewTable", () => {
-  it("renders a bounded first page for a very large review", () => {
-    const rows = Array.from({ length: 501 }, (_, index) => ({
+  it("renders only the supplied server page and requests the next page", () => {
+    const rows = Array.from({ length: 200 }, (_, index) => ({
       ...parsedRow,
       sourceRow: index + 2,
       status: "new" as const,
       messages: [],
     }));
-    render(<UploadReviewTable review={review({ rows, newCount: rows.length })} />);
+    const onPageChange = vi.fn();
+    render(<UploadReviewTable
+      review={review({ rows, newCount: 501 })}
+      page={1}
+      total={501}
+      onPageChange={onPageChange}
+    />);
 
     expect(screen.getByText("Showing 200 of 501 rows")).toBeInTheDocument();
     expect(screen.getAllByRole("row")).toHaveLength(201);
-    fireEvent.click(screen.getByRole("button", { name: "Show more rows" }));
-    expect(screen.getByText("Showing 400 of 501 rows")).toBeInTheDocument();
-    expect(screen.getAllByRole("row")).toHaveLength(401);
+    expect(screen.queryByRole("button", { name: "Show more rows" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(onPageChange).toHaveBeenCalledWith(2);
   });
 });
 
@@ -881,12 +971,15 @@ describe("UploadPage", () => {
     const repository = { stageUpload: vi.fn().mockResolvedValue(review()), commitUpload: vi.fn().mockResolvedValue({ batchId: "batch-1", insertedCount: 1, replacedCount: 0 }) };
     render(<UploadPage repository={repository} role="operator" />);
     fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
-    await screen.findByText("New: 1");
+    await screen.findAllByText("New: 1");
     expect(screen.getByText("Duplicates: 0")).toBeInTheDocument();
     expect(screen.getByText("Errors: 0")).toBeInTheDocument();
     expect(screen.getByText("Unregistered master data: 0")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Commit upload" }));
-    await waitFor(() => expect(repository.commitUpload).toHaveBeenCalledWith("batch-1", false));
+    await waitFor(() => expect(repository.commitUpload).toHaveBeenCalledWith("batch-1", false, {
+      masterCandidates: [],
+      standardTimeCandidates: [],
+    }));
   });
 
   it("keeps duplicate replacement admin-only", async () => {
@@ -895,7 +988,7 @@ describe("UploadPage", () => {
     const operator = render(<UploadPage repository={operatorRepository} role="operator" />);
     fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
     await screen.findByText("Duplicates: 1");
-    expect(screen.queryByLabelText("Replace duplicate records")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Replace duplicate records")).toBeDisabled();
     expect(screen.getByRole("button", { name: "Commit upload" })).toBeDisabled();
     operator.unmount();
 
@@ -905,7 +998,10 @@ describe("UploadPage", () => {
     const replace = await screen.findByLabelText("Replace duplicate records");
     fireEvent.click(replace);
     fireEvent.click(screen.getByRole("button", { name: "Commit upload" }));
-    await waitFor(() => expect(adminRepository.commitUpload).toHaveBeenCalledWith("batch-1", true));
+    await waitFor(() => expect(adminRepository.commitUpload).toHaveBeenCalledWith("batch-1", true, {
+      masterCandidates: [],
+      standardTimeCandidates: [],
+    }));
   });
 
   it("shows row diagnostics and disables commit when any invalid or unregistered row exists", async () => {
@@ -924,5 +1020,156 @@ describe("UploadPage", () => {
     expect(screen.getByText("Errors: 2")).toBeInTheDocument();
     expect(screen.getByText("Unregistered master data: 1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Commit upload" })).toBeDisabled();
+  });
+
+  it("lets an operator inspect candidates and ST evidence without approving or replacing anything", async () => {
+    const candidateReview = legacyReview({
+      conflictCount: 1,
+      rows: [{ ...parsedRow, status: "conflict", messages: ["Duplicate record"] }],
+    });
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(candidateReview),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="operator" />);
+    fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
+
+    await screen.findByText("legacy-production.xlsx");
+    expect(screen.getAllByText("MODEL-1").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText("Evidence"));
+    expect(screen.getAllByText("7200")).toHaveLength(3);
+    expect(screen.getByLabelText("Approved name MODEL-1")).toBeDisabled();
+    expect(screen.getByLabelText("Approve model MODEL-1")).toBeDisabled();
+    expect(screen.getByLabelText("Approved ST MODEL-1 AOI-1 AOI")).toBeDisabled();
+    expect(screen.getByLabelText("Approve ST MODEL-1 AOI-1 AOI")).toBeDisabled();
+    expect(screen.getByLabelText("Replace duplicate records")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Commit upload" })).toBeDisabled();
+  });
+
+  it("passes edited master and selected ST approvals when an admin commits", async () => {
+    const candidateReview = legacyReview({
+      conflictCount: 1,
+      rows: [{ ...parsedRow, status: "conflict", messages: ["Duplicate record"] }],
+    });
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(candidateReview),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn().mockResolvedValue({
+        batchId: "batch-1",
+        insertedCount: 1,
+        replacedCount: 1,
+      }),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+    fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
+
+    const approvedName = await screen.findByLabelText("Approved name MODEL-1");
+    fireEvent.change(approvedName, { target: { value: "Camera Main" } });
+    fireEvent.click(screen.getByLabelText("Approve model MODEL-1"));
+    fireEvent.click(screen.getByLabelText("Use 10.5 seconds from Production row 9"));
+    fireEvent.click(screen.getByLabelText("Approve ST MODEL-1 AOI-1 AOI"));
+    fireEvent.click(screen.getByLabelText("Replace duplicate records"));
+    fireEvent.click(screen.getByRole("button", { name: "Commit upload" }));
+
+    await waitFor(() => expect(repository.commitUpload).toHaveBeenCalledWith(
+      "batch-1",
+      true,
+      expect.objectContaining({
+        masterCandidates: [expect.objectContaining({
+          key: "model|MODEL-1",
+          approvedName: "Camera Main",
+        })],
+        standardTimeCandidates: [expect.objectContaining({
+          key: "MODEL-1|AOI-1|AOI",
+          approvedSecondsPerUnit: 10.5,
+        })],
+      }),
+    ));
+  });
+
+  it.each([
+    {
+      name: "an unapproved new master",
+      candidateReview: legacyReview({ standardTimeCandidates: [], standardTimeCandidateCount: 0 }),
+    },
+    {
+      name: "an unresolved ST conflict",
+      candidateReview: legacyReview({ masterCandidates: [], masterCandidateCount: 0 }),
+    },
+    {
+      name: "an error candidate",
+      candidateReview: legacyReview({
+        masterCandidates: [{ ...masterCandidate, status: "error", messages: ["Unsupported master"] }],
+        standardTimeCandidates: [],
+        standardTimeCandidateCount: 0,
+      }),
+    },
+    {
+      name: "a detail error",
+      candidateReview: legacyReview({
+        masterCandidates: [],
+        masterCandidateCount: 0,
+        standardTimeCandidates: [],
+        standardTimeCandidateCount: 0,
+        newCount: 0,
+        errorCount: 1,
+        rows: [{ ...parsedRow, status: "error", messages: ["Invalid quantity"] }],
+      }),
+    },
+  ])("keeps commit disabled for $name", async ({ candidateReview }) => {
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(candidateReview),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+    fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
+
+    await screen.findByText(candidateReview.sourceFileName);
+    expect(screen.getByRole("button", { name: "Commit upload" })).toBeDisabled();
+  });
+
+  it("loads server pages, resets filters to page one, and preserves candidate edits", async () => {
+    const candidateReview = legacyReview({ detailTotal: 401 });
+    const loadDetailPage = vi.fn()
+      .mockResolvedValueOnce({
+        page: 2,
+        pageSize: 200,
+        total: 401,
+        rows: [{ ...parsedRow, sourceRow: 203, status: "new", messages: [] }],
+        diagnostics: [],
+      })
+      .mockResolvedValueOnce({
+        page: 1,
+        pageSize: 200,
+        total: 3,
+        rows: [{ ...parsedRow, sourceRow: 301, status: "error", messages: ["Invalid quantity"] }],
+        diagnostics: [],
+      });
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(candidateReview),
+      loadDetailPage,
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+    fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
+
+    const approvedName = await screen.findByLabelText("Approved name MODEL-1");
+    fireEvent.change(approvedName, { target: { value: "Camera Main" } });
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await screen.findByText("203");
+    expect(loadDetailPage).toHaveBeenNthCalledWith(1, "batch-1", 2, undefined);
+    expect(screen.getByLabelText("Approved name MODEL-1")).toHaveValue("Camera Main");
+
+    fireEvent.change(screen.getByLabelText("Detail status"), { target: { value: "error" } });
+    await screen.findByText("Invalid quantity");
+    expect(loadDetailPage).toHaveBeenNthCalledWith(2, "batch-1", 1, "error");
+    expect(screen.getByText("Page 1")).toBeInTheDocument();
+    expect(screen.getByLabelText("Approved name MODEL-1")).toHaveValue("Camera Main");
   });
 });
