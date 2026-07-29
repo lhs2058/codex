@@ -81,6 +81,7 @@ describe("final database and security migration contracts", () => {
 
     expect(sql).toMatch(/historical_standard_time_immutable/i);
     expect(sql).toMatch(/p_entity = 'standard_times'[\s\S]*effective_from[\s\S]*business_date/i);
+    expect(sql).toMatch(/effective_to\s*=\s*case[\s\S]*business_date\s*-\s*1/i);
     expect(sql).toMatch(/private\.list_historical_standard_times\(\)/i);
     expect(sql).toMatch(/from public\.standard_times as standard_time[\s\S]*deleted_at[\s\S]*effective_from/i);
   });
@@ -106,6 +107,8 @@ describe("final database and security migration contracts", () => {
     expect(adminSql).toMatch(/cannot_remove_last_admin/i);
     expect(adminSql).toMatch(/time_slots_valid_duration/i);
     expect(adminSql).toMatch(/interval '24 hours'/i);
+    expect(adminSql).toMatch(/extract\(second from starts_at\)\s*=\s*0/i);
+    expect(adminSql).toMatch(/extract\(second from ends_at\)\s*=\s*0/i);
     expect(adminSql).toMatch(/admin_create_profile/i);
     expect(adminSql).toMatch(/auth\.role\(\)\s*<>\s*'service_role'/i);
     expect(adminSql).toMatch(/grant execute on function public\.admin_create_profile[\s\S]*to service_role/i);

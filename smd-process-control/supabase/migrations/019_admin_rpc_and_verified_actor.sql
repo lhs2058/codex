@@ -1,7 +1,9 @@
 alter table public.time_slots
   add constraint time_slots_valid_duration
   check (
-    (
+    extract(second from starts_at) = 0
+    and extract(second from ends_at) = 0
+    and (
       date '2000-01-01'
       + ends_at
       + end_day_offset * interval '1 day'
@@ -179,6 +181,8 @@ begin
       or length(code_value) > 100
       or starts_value is null
       or ends_value is null
+      or extract(second from starts_value) <> 0
+      or extract(second from ends_value) <> 0
       or end_offset_value not in (0, 1)
       or sequence_value is null
       or sequence_value <= 0
@@ -695,12 +699,12 @@ begin
     if not p_is_active then
       update public.standard_times as managed_row
       set effective_to = case
-            when managed_row.effective_from <= business_date
+            when managed_row.effective_from < business_date
               and (
                 managed_row.effective_to is null
                 or managed_row.effective_to >= business_date
               )
-              then business_date
+              then business_date - 1
             else managed_row.effective_to
           end,
           deleted_at = now(),
