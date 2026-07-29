@@ -7,7 +7,7 @@
     "dev": "vinext dev",
     "dev:vite": "vite",
     "build": "tsc --noEmit && vinext build && node scripts/copy-hosting.mjs",
-    "build:vite": "tsc --noEmit && vite build",
+    "build:vite": "tsc --noEmit && vite build --config vite.spa.config.ts",
     "start": "vinext start",
     "test": "vitest run",
     "test:e2e": "playwright test --pass-with-no-tests",
