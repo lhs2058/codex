@@ -74,6 +74,7 @@ describe("final database and security migration contracts", () => {
     expect(sql).toMatch(/time_slot_id is not distinct from[\s\S]{0,80}validated_time_slot_id/i);
     expect(sql).toMatch(/defectInserted/i);
     expect(sql).toMatch(/errorCount/i);
+    expect(sql).toMatch(/set_config\(\s*'app\.commit_upload_mode',\s*'off',\s*true\s*\)/i);
   });
 
   it("keeps historical standard-time periods immutable across admin changes", () => {
@@ -86,6 +87,23 @@ describe("final database and security migration contracts", () => {
     expect(sql).toMatch(/from public\.standard_times as standard_time[\s\S]*deleted_at[\s\S]*effective_from/i);
   });
 
+  it("ships the runtime hardening wrappers for existing 001-020 databases", () => {
+    const sql = readMigration("021_runtime_verification_hardening.sql");
+
+    expect(sql).toMatch(/save_production_record_v20_impl/i);
+    expect(sql).toMatch(/extract\(second from start_value\)\s*<>\s*0/i);
+    expect(sql).toMatch(/extract\(second from end_value\)\s*<>\s*0/i);
+    expect(sql).toMatch(/commit_upload_batch_v20_impl/i);
+    expect(sql).toMatch(/set_config\(\s*'app\.commit_upload_mode',\s*'off',\s*true\s*\)/i);
+    expect(sql).toMatch(/revoke all on function public\.commit_upload_batch_v20_impl/i);
+  });
+
+  it("moves extension-owned objects outside the API-exposed schema", () => {
+    const sql = readMigration("022_extension_schema_hardening.sql");
+
+    expect(sql).toMatch(/alter extension btree_gist set schema extensions/i);
+  });
+
   it("rejects inactive manual dimensions and exposes hardened optimistic admin RPCs only to intended roles", () => {
     const uploadSql = readMigration("018_atomic_upload_and_manual_validation.sql");
     const adminSql = readMigration("019_admin_rpc_and_verified_actor.sql");
@@ -94,6 +112,8 @@ describe("final database and security migration contracts", () => {
     for (const table of ["models", "lines", "processes", "shifts", "time_slots", "downtime_reasons"]) {
       expect(uploadSql).toMatch(new RegExp(`from public\\.${table}[\\s\\S]*?is_active[\\s\\S]*?deleted_at is null`, "i"));
     }
+    expect(uploadSql).toMatch(/extract\(second from start_value\)\s*<>\s*0/i);
+    expect(uploadSql).toMatch(/extract\(second from end_value\)\s*<>\s*0/i);
     expect(adminSql).toMatch(/admin_list_operational_data\(\s*\)/i);
     expect(adminSql).toMatch(/admin_manage_configuration\(\s*p_entity text,\s*p_action text,\s*p_record_id uuid,\s*p_expected_version bigint,\s*p_values jsonb\s*\)/i);
     expect(adminSql).toMatch(/admin_manage_profile\(\s*p_profile_id uuid,\s*p_role text,\s*p_is_active boolean,\s*p_expected_version bigint\s*\)/i);

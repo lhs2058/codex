@@ -1321,8 +1321,8 @@ begin
     if minute_value is not null then
       total_minutes := total_minutes + minute_value::integer;
     else
-      if start_value::time(0) <> start_value
-        or end_value::time(0) <> end_value then
+      if extract(second from start_value) <> 0
+        or extract(second from end_value) <> 0 then
         raise exception using
           errcode = '22023',
           message = 'invalid_downtime_duration';

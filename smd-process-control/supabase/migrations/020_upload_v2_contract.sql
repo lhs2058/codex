@@ -1292,6 +1292,8 @@ begin
       version = version + 1
   where id = batch_row.id;
 
+  perform set_config('app.commit_upload_mode', 'off', true);
+
   return jsonb_build_object(
     'batch_id', batch_row.id,
     'status', 'committed',
