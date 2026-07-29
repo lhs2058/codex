@@ -312,6 +312,33 @@ describe("upload repository", () => {
     await expect(repository.stageUpload(file())).rejects.toMatchObject({ message: "network lost", batchId: "retry-batch" });
   });
 
+  it("keeps the persisted batch id and RPC error details when the post-stage detail page fails", async () => {
+    const repository = createUploadRepository({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }) },
+      storage: { from: () => ({ upload: vi.fn().mockResolvedValue({ data: { path: "stored.xlsx" }, error: null }) }) },
+      from: vi.fn((table: string) => ({ insert: table === "upload_batches"
+        ? () => ({ select: () => ({ single: async () => ({ data: { id: "page-retry-batch" }, error: null }) }) })
+        : vi.fn().mockResolvedValue({ data: null, error: null }) })),
+      rpc: vi.fn(async (name: string) => {
+        if (name === "find_completed_upload_by_hash") return { data: null, error: null };
+        if (name === "stage_upload_candidates") return { data: { masterCandidateCount: 0, standardTimeCandidateCount: 0 }, error: null };
+        if (name === "list_upload_detail_page") return { data: null, error: { code: "57014", message: "detail page timed out" } };
+        throw new Error(`unexpected RPC ${name}`);
+      }),
+    } as unknown as UploadRepositoryClient, {
+      readWorkbook: vi.fn().mockResolvedValue([]),
+      parseWorkbook: () => ({ kind: "production", rows: [parsedRow], diagnostics: [], capacityEvidence: [], stWarnings: [] }),
+      listMasterData: vi.fn().mockResolvedValue(masterData),
+      findExisting: vi.fn().mockResolvedValue(null),
+    });
+
+    await expect(repository.stageUpload(file())).rejects.toMatchObject({
+      message: "detail page timed out",
+      code: "57014",
+      batchId: "page-retry-batch",
+    });
+  });
+
   it("stages derived master candidates while keeping rows with candidate masters committable", async () => {
     const insertedRows = vi.fn().mockResolvedValue({ data: null, error: null });
     const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => {

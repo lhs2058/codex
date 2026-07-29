@@ -131,6 +131,25 @@ export class UploadRepositoryError extends Error {
   }
 }
 
+function withBatchId(error: unknown, batchId: string): UploadRepositoryError {
+  const retryError = error instanceof UploadRepositoryError
+    ? error
+    : new UploadRepositoryError(error instanceof Error ? error.message : String(error));
+  if (!retryError.code && typeof error === "object" && error !== null && "code" in error) {
+    retryError.code = String((error as { code: unknown }).code);
+  }
+  retryError.batchId = batchId;
+  return retryError;
+}
+
+async function forPersistedBatch<T>(batchId: string, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw withBatchId(error, batchId);
+  }
+}
+
 export async function sha256File(file: File): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -703,25 +722,15 @@ export function createUploadRepository(
           if (rowResult.error) throw new UploadRepositoryError(rowResult.error);
         }
       }
-      let stagedCandidates: { masterCandidateCount?: number; standardTimeCandidateCount?: number };
-      try {
-        stagedCandidates = requestData(await client.rpc("stage_upload_candidates", {
+      const stagedCandidates = await forPersistedBatch(batch.id, async () =>
+        requestData(await client.rpc("stage_upload_candidates", {
           p_batch_id: batch.id,
           p_master_candidates: candidates.masterCandidates,
           p_standard_time_candidates: candidates.standardTimeCandidates,
-        }), "upload_candidate_stage_failed");
-      } catch (error) {
-        const retryError = error instanceof UploadRepositoryError
-          ? error
-          : new UploadRepositoryError(error instanceof Error ? error.message : String(error));
-        if (!(retryError.code) && typeof error === "object" && error !== null && "code" in error) {
-          retryError.code = String((error as { code: unknown }).code);
-        }
-        retryError.batchId = batch.id;
-        throw retryError;
-      }
+        }), "upload_candidate_stage_failed") as { masterCandidateCount?: number; standardTimeCandidateCount?: number },
+      );
       const defectCount = reviewedRows.reduce((total, row) => total + row.defects.length, 0);
-      const detail = await loadDetailPage(batch.id, 1);
+      const detail = await forPersistedBatch(batch.id, () => loadDetailPage(batch.id, 1));
       return {
         batchId: batch.id,
         sourceFileName: file.name,
