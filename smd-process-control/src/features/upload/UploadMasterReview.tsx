@@ -1,15 +1,32 @@
 import type React from "react";
 import type { UploadApproval } from "../../data/repositories/upload-repository";
 import type { AppRole, UploadMasterCandidate } from "../../domain/types";
+import { useI18n, type TranslationKey } from "../../i18n";
 
-function statusLabel(status: UploadMasterCandidate["status"]): string {
-  return {
-    existing: "Existing",
-    new: "New",
-    conflict: "Conflict",
-    error: "Error",
-  }[status];
-}
+const legacy: Partial<Record<TranslationKey, string>> = {
+  "upload.masterCandidateReview": "Master candidate review",
+  "upload.masterCandidates": "Master candidates",
+  "upload.entity": "Entity",
+  "upload.code": "Code",
+  "upload.parentShift": "Parent shift",
+  "upload.proposedName": "Proposed name",
+  "upload.currentName": "Current canonical name",
+  "upload.approvedName": "Approved name",
+  "common.status": "Status",
+  "upload.conflictReason": "Conflict reason",
+  "upload.resolution": "Resolution",
+  "common.messages": "Messages",
+  "upload.sources": "Sources",
+  "upload.approve": "Approve",
+  "upload.existing": "Existing",
+  "upload.new": "New",
+  "upload.conflict": "Conflict",
+  "upload.error": "Error",
+  "upload.resolvable": "Resolvable",
+  "upload.blocked": "Blocked",
+  "upload.approvedNameFor": "Approved name {code}",
+  "upload.approveMaster": "Approve {entity} {code}",
+};
 
 export function UploadMasterReview(props: {
   candidates: UploadMasterCandidate[];
@@ -17,6 +34,13 @@ export function UploadMasterReview(props: {
   approvals: UploadApproval["masterCandidates"];
   onChange(next: UploadApproval["masterCandidates"]): void;
 }): React.JSX.Element {
+  const { t } = useI18n(legacy);
+  const statusLabel = {
+    existing: t("upload.existing"),
+    new: t("upload.new"),
+    conflict: t("upload.conflict"),
+    error: t("upload.error"),
+  } as const;
   const approvalFor = (candidate: UploadMasterCandidate) =>
     props.approvals.find((approval) => approval.key === candidate.key) ?? {
       key: candidate.key,
@@ -36,24 +60,24 @@ export function UploadMasterReview(props: {
     props.onChange(next);
   };
 
-  return <section aria-label="Master candidate review">
-    <h2>Master candidates</h2>
-    <div className="table-scroll" tabIndex={0} role="region" aria-label="Master candidate review">
+  return <section aria-label={t("upload.masterCandidateReview")}>
+    <h2>{t("upload.masterCandidates")}</h2>
+    <div className="table-scroll" tabIndex={0} role="region" aria-label={t("upload.masterCandidateReview")}>
       <table className="upload-review-table">
         <thead>
           <tr>
-            <th>Entity</th>
-            <th>Code</th>
-            <th>Parent shift</th>
-            <th>Proposed name</th>
-            <th>Current canonical name</th>
-            <th>Approved name</th>
-            <th>Status</th>
-            <th>Conflict reason</th>
-            <th>Resolution</th>
-            <th>Messages</th>
-            <th>Sources</th>
-            <th>Approve</th>
+            <th>{t("upload.entity")}</th>
+            <th>{t("upload.code")}</th>
+            <th>{t("upload.parentShift")}</th>
+            <th>{t("upload.proposedName")}</th>
+            <th>{t("upload.currentName")}</th>
+            <th>{t("upload.approvedName")}</th>
+            <th>{t("common.status")}</th>
+            <th>{t("upload.conflictReason")}</th>
+            <th>{t("upload.resolution")}</th>
+            <th>{t("common.messages")}</th>
+            <th>{t("upload.sources")}</th>
+            <th>{t("upload.approve")}</th>
           </tr>
         </thead>
         <tbody>
@@ -72,9 +96,9 @@ export function UploadMasterReview(props: {
               <td>{candidate.currentName ?? "—"}</td>
               <td>
                 <label>
-                  <span className="sr-only">Approved name {candidate.code}</span>
+                  <span className="sr-only">{t("upload.approvedNameFor", { code: candidate.code })}</span>
                   <input
-                    aria-label={`Approved name ${candidate.code}`}
+                    aria-label={t("upload.approvedNameFor", { code: candidate.code })}
                     type="text"
                     value={approval.approvedName}
                     disabled={!editable}
@@ -82,14 +106,17 @@ export function UploadMasterReview(props: {
                   />
                 </label>
               </td>
-              <td>{statusLabel(candidate.status)}</td>
+              <td><span className={`upload-status-badge is-${candidate.status}`}>{statusLabel[candidate.status]}</span></td>
               <td>{candidate.conflictReason ?? "—"}</td>
-              <td>{candidate.resolvable ? "Resolvable" : "Blocked"}</td>
+              <td>{candidate.resolvable ? t("upload.resolvable") : t("upload.blocked")}</td>
               <td>{candidate.messages.join("; ") || "—"}</td>
               <td>{candidate.sources.map((source) => `${source.sheet} ${source.row}`).join(", ")}</td>
               <td>
                 <input
-                  aria-label={`Approve ${candidate.entity} ${candidate.code}`}
+                  aria-label={t("upload.approveMaster", {
+                    entity: candidate.entity,
+                    code: candidate.code,
+                  })}
                   type="checkbox"
                   checked={candidate.status === "existing" || approval.approved}
                   disabled={!editable || candidate.status === "error"}

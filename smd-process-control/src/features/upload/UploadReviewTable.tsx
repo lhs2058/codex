@@ -17,6 +17,10 @@ const legacy: Partial<Record<TranslationKey, string>> = {
   "common.messages": "Messages",
   "upload.showMoreRows": "Show more rows",
   "upload.showingRows": "Showing {shown} of {total} rows",
+  "upload.detailPages": "Detail pages",
+  "upload.previousPage": "Previous page",
+  "upload.page": "Page {page}",
+  "upload.nextPage": "Next page",
 };
 
 export function UploadReviewTable({
@@ -66,7 +70,7 @@ export function UploadReviewTable({
         {review.rows.map((row) => <tr key={`${row.sourceSheet}-${row.sourceRow}`}>
           <td>{row.sourceSheet}</td>
           <td>{row.sourceRow}</td>
-          <td>{statusLabel[row.status]}</td>
+          <td><span className={`upload-status-badge is-${row.status}`}>{statusLabel[row.status]}</span></td>
           <td>{row.productionDate}</td>
           <td>{row.lineCode}</td>
           <td>{row.modelCode}</td>
@@ -76,27 +80,27 @@ export function UploadReviewTable({
         {review.diagnostics.map((diagnostic) => <tr key={`diagnostic-${diagnostic.sourceSheet}-${diagnostic.sourceRow}`}>
           <td>{diagnostic.sourceSheet}</td>
           <td>{diagnostic.sourceRow}</td>
-          <td>{t("upload.statusError")}</td>
+          <td><span className="upload-status-badge is-error">{t("upload.statusError")}</span></td>
           <td colSpan={4}>—</td>
           <td>{diagnostic.messages.join("; ")}</td>
         </tr>)}
       </tbody>
     </table></div>
-    <nav aria-label="Detail pages">
+    <nav className="upload-pagination" aria-label={t("upload.detailPages")}>
       <button
         type="button"
         disabled={busy || page <= 1 || !onPageChange}
         onClick={() => onPageChange?.(page - 1)}
       >
-        Previous page
+        {t("upload.previousPage")}
       </button>
-      <span>Page {page}</span>
+      <span>{t("upload.page", { page })}</span>
       <button
         type="button"
         disabled={busy || page >= pageCount || !onPageChange}
         onClick={() => onPageChange?.(page + 1)}
       >
-        Next page
+        {t("upload.nextPage")}
       </button>
     </nav>
   </section>;

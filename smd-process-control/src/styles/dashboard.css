@@ -602,11 +602,139 @@
   color: #fff;
 }
 
+.upload-main fieldset,
+.upload-main section {
+  min-width: 0;
+}
+
+.upload-source dl,
+.upload-standard-time-candidate dl {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.upload-source dl {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.upload-source dl > div,
+.upload-standard-time-candidate dl > div {
+  min-width: 0;
+}
+
+.upload-source dt,
+.upload-standard-time-candidate dt {
+  color: #68758b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.upload-source dd,
+.upload-standard-time-candidate dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.upload-candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.upload-standard-time-candidate {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #e1e7f0;
+  border-radius: 13px;
+  background: #fff;
+  box-shadow: 0 4px 14px #1720330a;
+}
+
+.upload-standard-time-candidate input[type="number"] {
+  min-width: 8rem;
+}
+
+.upload-main .table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.upload-review-table {
+  width: 100%;
+  min-width: 52rem;
+  border-collapse: collapse;
+}
+
+.upload-status-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  box-sizing: border-box;
+  padding: 3px 8px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.upload-status-badge.is-existing {
+  background: #eef2f7;
+  color: #56637a;
+}
+
+.upload-status-badge.is-new {
+  background: #e6f8f1;
+  color: #0b835e;
+}
+
+.upload-status-badge.is-conflict {
+  background: #fff0df;
+  color: #b85e0b;
+}
+
+.upload-status-badge.is-error {
+  background: #fff0f0;
+  color: #b83f3f;
+}
+
+.upload-pagination {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.upload-pagination button:focus-visible {
+  outline: 3px solid #4389ed;
+  outline-offset: 3px;
+}
+
+.upload-duplicate-policy {
+  margin-block: 16px;
+  padding: 12px 14px;
+  border: 1px solid #e1e7f0;
+  border-radius: 10px;
+}
+
+.upload-duplicate-policy p {
+  margin: 0 0 8px;
+  color: #68758b;
+  font-size: 12px;
+}
+
 @media (max-width: 1120px) {
   .dashboard-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-grid-top,
   .dashboard-grid-bottom { grid-template-columns: 1fr; }
   .analysis-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 899px) {
+  .upload-candidate-grid { grid-template-columns: 1fr; }
+  .upload-source dl { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 820px) {

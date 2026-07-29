@@ -1,6 +1,38 @@
 import type React from "react";
 import type { UploadApproval } from "../../data/repositories/upload-repository";
 import type { AppRole, UploadStandardTimeCandidate } from "../../domain/types";
+import { useI18n, type TranslationKey } from "../../i18n";
+
+const legacy: Partial<Record<TranslationKey, string>> = {
+  "upload.standardTimeCandidateReview": "Standard time candidate review",
+  "upload.standardTime": "Standard time candidates",
+  "upload.standardTimeFormula": "Formula: planned slot seconds / CAPA",
+  "common.status": "Status",
+  "upload.existing": "Existing",
+  "upload.new": "New",
+  "upload.conflict": "Conflict",
+  "upload.error": "Error",
+  "upload.minimum": "Minimum",
+  "upload.median": "Median",
+  "upload.maximum": "Maximum",
+  "upload.effectiveFrom": "Effective from",
+  "upload.effectiveTo": "Effective to",
+  "upload.openEnded": "Open",
+  "upload.approvedStandardTime": "Approved ST",
+  "upload.approvedStandardTimeFor": "Approved ST {model} {line} {process}",
+  "upload.approveStandardTime": "Approve ST {model} {line} {process}",
+  "upload.approve": "Approve",
+  "upload.evidence": "Evidence",
+  "upload.evidenceRegion": "ST evidence {model} {line} {process}",
+  "upload.select": "Select",
+  "upload.slot": "Slot",
+  "upload.plannedSeconds": "Planned seconds",
+  "upload.capacity": "CAPA",
+  "upload.calculatedStandardTime": "Calculated ST",
+  "upload.sheet": "Sheet",
+  "upload.row": "Row",
+  "upload.useObservation": "Use {seconds} seconds from {sheet} row {row}",
+};
 
 export function isBlockedStandardTimeCandidate(candidate: UploadStandardTimeCandidate): boolean {
   return candidate.status === "error"
@@ -13,6 +45,13 @@ export function UploadStandardTimeReview(props: {
   approvals: UploadApproval["standardTimeCandidates"];
   onChange(next: UploadApproval["standardTimeCandidates"]): void;
 }): React.JSX.Element {
+  const { t } = useI18n(legacy);
+  const statusLabel = {
+    existing: t("upload.existing"),
+    new: t("upload.new"),
+    conflict: t("upload.conflict"),
+    error: t("upload.error"),
+  } as const;
   const approvalFor = (candidate: UploadStandardTimeCandidate) =>
     props.approvals.find((approval) => approval.key === candidate.key) ?? {
       key: candidate.key,
@@ -35,9 +74,10 @@ export function UploadStandardTimeReview(props: {
     props.onChange(next);
   };
 
-  return <section aria-label="Standard time candidate review">
-    <h2>Standard time candidates</h2>
-    <p>Formula: planned slot seconds / CAPA</p>
+  return <section aria-label={t("upload.standardTimeCandidateReview")}>
+    <h2>{t("upload.standardTime")}</h2>
+    <p>{t("upload.standardTimeFormula")}</p>
+    <div className="upload-candidate-grid">
     {props.candidates.map((candidate) => {
       const approval = approvalFor(candidate);
       const blocked = isBlockedStandardTimeCandidate(candidate);
@@ -51,18 +91,22 @@ export function UploadStandardTimeReview(props: {
       return <article key={candidate.key} className="upload-standard-time-candidate">
         <h3>{labelSuffix}</h3>
         <dl>
-          <div><dt>Status</dt><dd>{candidate.status}</dd></div>
-          <div><dt>Minimum</dt><dd>{candidate.minimum}</dd></div>
-          <div><dt>Median</dt><dd>{candidate.median}</dd></div>
-          <div><dt>Maximum</dt><dd>{candidate.maximum}</dd></div>
-          <div><dt>Effective from</dt><dd>{candidate.effectiveFrom}</dd></div>
-          <div><dt>Effective to</dt><dd>{candidate.effectiveTo ?? "Open"}</dd></div>
+          <div><dt>{t("common.status")}</dt><dd><span className={`upload-status-badge is-${candidate.status}`}>{statusLabel[candidate.status]}</span></dd></div>
+          <div><dt>{t("upload.minimum")}</dt><dd>{candidate.minimum}</dd></div>
+          <div><dt>{t("upload.median")}</dt><dd>{candidate.median}</dd></div>
+          <div><dt>{t("upload.maximum")}</dt><dd>{candidate.maximum}</dd></div>
+          <div><dt>{t("upload.effectiveFrom")}</dt><dd>{candidate.effectiveFrom}</dd></div>
+          <div><dt>{t("upload.effectiveTo")}</dt><dd>{candidate.effectiveTo ?? t("upload.openEnded")}</dd></div>
         </dl>
         {candidate.messages.length > 0 && <p>{candidate.messages.join("; ")}</p>}
         <label>
-          Approved ST
+          {t("upload.approvedStandardTime")}
           <input
-            aria-label={`Approved ST ${labelSuffix}`}
+            aria-label={t("upload.approvedStandardTimeFor", {
+              model: candidate.modelCode,
+              line: candidate.lineCode,
+              process: candidate.processCode,
+            })}
             type="number"
             min="0"
             step="any"
@@ -79,27 +123,35 @@ export function UploadStandardTimeReview(props: {
         </label>
         <label>
           <input
-            aria-label={`Approve ST ${labelSuffix}`}
+            aria-label={t("upload.approveStandardTime", {
+              model: candidate.modelCode,
+              line: candidate.lineCode,
+              process: candidate.processCode,
+            })}
             type="checkbox"
             checked={candidate.status === "existing" || approval.approved}
             disabled={!editable || !hasPositiveValue}
             onChange={(event) => update(candidate, { approved: event.target.checked })}
           />
-          Approve
+          {t("upload.approve")}
         </label>
         <details>
-          <summary>Evidence</summary>
-          <div className="table-scroll" tabIndex={0} role="region" aria-label={`ST evidence ${labelSuffix}`}>
+          <summary>{t("upload.evidence")}</summary>
+          <div className="table-scroll" tabIndex={0} role="region" aria-label={t("upload.evidenceRegion", {
+            model: candidate.modelCode,
+            line: candidate.lineCode,
+            process: candidate.processCode,
+          })}>
             <table className="upload-review-table">
               <thead>
                 <tr>
-                  <th>Select</th>
-                  <th>Slot</th>
-                  <th>Planned seconds</th>
-                  <th>CAPA</th>
-                  <th>Calculated ST</th>
-                  <th>Sheet</th>
-                  <th>Row</th>
+                  <th>{t("upload.select")}</th>
+                  <th>{t("upload.slot")}</th>
+                  <th>{t("upload.plannedSeconds")}</th>
+                  <th>{t("upload.capacity")}</th>
+                  <th>{t("upload.calculatedStandardTime")}</th>
+                  <th>{t("upload.sheet")}</th>
+                  <th>{t("upload.row")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -112,7 +164,11 @@ export function UploadStandardTimeReview(props: {
                 ].join("|")}>
                   <td>
                     <input
-                      aria-label={`Use ${observation.secondsPerUnit} seconds from ${observation.sheet} row ${observation.row}`}
+                      aria-label={t("upload.useObservation", {
+                        seconds: observation.secondsPerUnit,
+                        sheet: observation.sheet,
+                        row: observation.row,
+                      })}
                       type="radio"
                       name={`st-observation-${candidate.key}`}
                       checked={approval.approvedSecondsPerUnit === observation.secondsPerUnit}
@@ -136,5 +192,6 @@ export function UploadStandardTimeReview(props: {
         </details>
       </article>;
     })}
+    </div>
   </section>;
 }

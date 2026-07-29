@@ -14,6 +14,7 @@ import {
 import { UploadPage } from "../../src/features/upload/UploadPage";
 import { UploadReviewTable } from "../../src/features/upload/UploadReviewTable";
 import { UploadStandardTimeReview } from "../../src/features/upload/UploadStandardTimeReview";
+import { I18nProvider, type Language } from "../../src/i18n";
 
 const masterData: MasterDataSnapshot = {
   models: [{ id: "m", code: "MODEL-A", name: "Model A", active: true, version: 1 }],
@@ -1011,6 +1012,136 @@ describe("UploadReviewTable", () => {
 });
 
 describe("UploadPage", () => {
+  it.each([
+    {
+      language: "ko" as Language,
+      labels: {
+        sourceFile: "원본 파일",
+        hash: "파일 해시 (SHA-256)",
+        masterData: "기준정보",
+        standardTime: "표준시간(ST)",
+        existing: "기존",
+        new: "신규",
+        conflict: "충돌",
+        error: "오류",
+        approve: "승인",
+        formula: "계산식: 계획 시간(초) ÷ CAPA",
+        evidence: "원본 근거",
+        duplicatePolicy: "중복 처리 방식",
+        skipDuplicates: "중복 건너뛰기",
+        replaceDuplicates: "중복 교체",
+        previousPage: "이전 페이지",
+        nextPage: "다음 페이지",
+        commit: "최종 승인 및 반영",
+        committed: "반영 완료: 신규 2건, 교체 1건, 건너뛰기 3건, 기준정보 4건, 표준시간(ST) 5건",
+      },
+    },
+    {
+      language: "vi" as Language,
+      labels: {
+        sourceFile: "Tệp nguồn",
+        hash: "Mã băm tệp (SHA-256)",
+        masterData: "Dữ liệu chuẩn",
+        standardTime: "Thời gian chuẩn (ST)",
+        existing: "Đã có",
+        new: "Mới",
+        conflict: "Xung đột",
+        error: "Lỗi",
+        approve: "Phê duyệt",
+        formula: "Công thức: số giây kế hoạch ÷ CAPA",
+        evidence: "Nguồn dữ liệu",
+        duplicatePolicy: "Chính sách bản ghi trùng",
+        skipDuplicates: "Bỏ qua bản ghi trùng",
+        replaceDuplicates: "Thay thế bản ghi trùng",
+        previousPage: "Trang trước",
+        nextPage: "Trang sau",
+        commit: "Phê duyệt và ghi dữ liệu",
+        committed: "Đã ghi dữ liệu: thêm mới 2, thay thế 1, bỏ qua 3, dữ liệu chuẩn 4, thời gian chuẩn (ST) 5",
+      },
+    },
+  ])("localizes the complete legacy approval flow in $language", async ({ language, labels }) => {
+    const localizedReview = legacyReview({
+      conflictCount: 1,
+      detailTotal: 401,
+      masterCandidates: [{
+        ...masterCandidate,
+        status: "existing",
+        approved: true,
+        currentName: "MODEL-1",
+      }],
+      standardTimeCandidates: [{
+        ...standardTimeCandidate,
+        status: "existing",
+        approved: true,
+        proposedSecondsPerUnit: 10.5,
+        approvedSecondsPerUnit: 10.5,
+        messages: [],
+      }],
+    });
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(localizedReview),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn().mockResolvedValue({
+        batchId: "batch-1",
+        insertedCount: 2,
+        replacedCount: 1,
+        skippedCount: 3,
+        masterInsertedCount: 4,
+        standardTimeInsertedCount: 5,
+      }),
+    };
+
+    render(
+      <I18nProvider profileLanguage={language}>
+        <UploadPage repository={repository} role="admin" />
+      </I18nProvider>,
+    );
+    fireEvent.change(screen.getByLabelText(language === "ko" ? "엑셀 파일" : "Tệp Excel"), {
+      target: { files: [file()] },
+    });
+
+    await screen.findByText("legacy-production.xlsx");
+    for (const label of [
+      labels.sourceFile,
+      labels.hash,
+      labels.masterData,
+      labels.standardTime,
+      labels.existing,
+      labels.new,
+      labels.conflict,
+      labels.error,
+      labels.approve,
+      labels.formula,
+      labels.evidence,
+      labels.duplicatePolicy,
+      labels.skipDuplicates,
+      labels.replaceDuplicates,
+    ]) {
+      expect(screen.getAllByText(label, { exact: true }).length).toBeGreaterThan(0);
+    }
+    expect(screen.getByRole("button", { name: labels.previousPage })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: labels.nextPage })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText(labels.replaceDuplicates));
+    fireEvent.click(screen.getByRole("button", { name: labels.commit }));
+    expect(await screen.findByText(labels.committed)).toBeInTheDocument();
+
+    for (const fallback of [
+      "Workbook upload",
+      "Workbook",
+      "Upload summary",
+      "Master candidates",
+      "Standard time candidates",
+      "Evidence",
+      "Replace duplicate records",
+      "Previous page",
+      "Next page",
+      "Commit upload",
+    ]) {
+      expect(screen.queryByText(fallback, { exact: true })).not.toBeInTheDocument();
+    }
+  });
+
   it("shows a valid review and commits it once", async () => {
     const repository = { stageUpload: vi.fn().mockResolvedValue(review()), commitUpload: vi.fn().mockResolvedValue({ batchId: "batch-1", insertedCount: 1, replacedCount: 0 }) };
     render(<UploadPage repository={repository} role="operator" />);

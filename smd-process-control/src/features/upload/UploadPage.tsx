@@ -35,6 +35,23 @@ const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.commit": "Commit upload",
   "upload.committing": "Committing…",
   "upload.committed": "Committed: {inserted} inserted, {replaced} replaced",
+  "upload.sourceWorkbook": "Source workbook",
+  "upload.sourceFile": "Source file",
+  "upload.workbookKind": "Workbook kind",
+  "upload.sourceHash": "File hash (SHA-256)",
+  "upload.duplicateCompleted": "This workbook was already completed.",
+  "upload.masterData": "Master data",
+  "upload.masterStatusCounts": "Master status counts",
+  "upload.existing": "Existing",
+  "upload.conflict": "Conflict",
+  "upload.error": "Error",
+  "upload.detailStatusCounts": "Detail status counts",
+  "upload.detailStatus": "Detail status",
+  "upload.allStatuses": "All",
+  "upload.duplicatePolicy": "Duplicate policy",
+  "upload.skipDuplicates": "Skip duplicate records",
+  "upload.commitFinal": "Commit upload",
+  "upload.committedDetailed": "Committed: {inserted} inserted, {replaced} replaced, {skipped} skipped, {masters} masters, {standardTimes} standard times",
 };
 
 let defaultUploadRepository: UploadRepository | undefined;
@@ -207,7 +224,13 @@ export function UploadPage({
     setError("");
     try {
       const result = await repositoryRef.commitUpload(review.batchId, replaceConflicts, approval);
-      setCommitMessage(t("upload.committed", { inserted: result.insertedCount, replaced: result.replacedCount }));
+      setCommitMessage(t("upload.committedDetailed", {
+        inserted: result.insertedCount,
+        replaced: result.replacedCount,
+        skipped: result.skippedCount ?? 0,
+        masters: result.masterInsertedCount ?? 0,
+        standardTimes: result.standardTimeInsertedCount ?? 0,
+      }));
     } catch (commitError) {
       setError(commitError instanceof Error ? commitError.message : t("upload.commitFailed"));
     } finally {
@@ -254,11 +277,13 @@ export function UploadPage({
     {busy === "download" && <p role="status" aria-live="polite">{t("upload.preparing")}</p>}
     {error && <p role="alert">{error}</p>}
     {review && <>
-      {isLegacyReview(review) && <section aria-label="Source workbook">
-        <h2>{review.sourceFileName}</h2>
-        <p>Kind: {review.workbookKind}</p>
-        <p>SHA-256: {review.sourceSha256}</p>
-        {review.duplicateCompletedBatch && <p role="status">This workbook was already completed.</p>}
+      {isLegacyReview(review) && <section className="upload-source" aria-label={t("upload.sourceWorkbook")}>
+        <dl>
+          <div><dt>{t("upload.sourceFile")}</dt><dd>{review.sourceFileName}</dd></div>
+          <div><dt>{t("upload.workbookKind")}</dt><dd>{review.workbookKind}</dd></div>
+          <div><dt>{t("upload.sourceHash")}</dt><dd><code>{review.sourceSha256}</code></dd></div>
+        </dl>
+        {review.duplicateCompletedBatch && <p role="status">{t("upload.duplicateCompleted")}</p>}
       </section>}
       <section className="upload-summary" aria-label={t("upload.summary")}>
         <p>{t("upload.new")}: {review.newCount}</p>
@@ -267,12 +292,12 @@ export function UploadPage({
         <p>{t("upload.unknownMaster")}: {review.unknownMasterDataCount}</p>
       </section>
       {isLegacyReview(review) && <>
-        <section aria-label="Master candidate counts">
-          <h2>Master status counts</h2>
-          <p>Existing: {review.masterCandidates.filter((candidate) => candidate.status === "existing").length}</p>
-          <p>New: {review.masterCandidates.filter((candidate) => candidate.status === "new").length}</p>
-          <p>Conflict: {review.masterCandidates.filter((candidate) => candidate.status === "conflict").length}</p>
-          <p>Error: {review.masterCandidates.filter((candidate) => candidate.status === "error").length}</p>
+        <section aria-label={t("upload.masterStatusCounts")}>
+          <h2>{t("upload.masterData")}</h2>
+          <p><span className="upload-status-badge is-existing">{t("upload.existing")}</span>: {review.masterCandidates.filter((candidate) => candidate.status === "existing").length}</p>
+          <p><span className="upload-status-badge is-new">{t("upload.new")}</span>: {review.masterCandidates.filter((candidate) => candidate.status === "new").length}</p>
+          <p><span className="upload-status-badge is-conflict">{t("upload.conflict")}</span>: {review.masterCandidates.filter((candidate) => candidate.status === "conflict").length}</p>
+          <p><span className="upload-status-badge is-error">{t("upload.error")}</span>: {review.masterCandidates.filter((candidate) => candidate.status === "error").length}</p>
         </section>
         <fieldset disabled={busy === "commit"}>
           <UploadMasterReview
@@ -289,15 +314,15 @@ export function UploadPage({
           />
         </fieldset>
       </>}
-      <section aria-label="Detail status counts">
-        <h2>Detail status counts</h2>
-        <p>New: {review.newCount}</p>
-        <p>Conflict: {review.conflictCount}</p>
-        <p>Error: {review.errorCount}</p>
+      <section aria-label={t("upload.detailStatusCounts")}>
+        <h2>{t("upload.detailStatusCounts")}</h2>
+        <p><span className="upload-status-badge is-new">{t("upload.new")}</span>: {review.newCount}</p>
+        <p><span className="upload-status-badge is-conflict">{t("upload.conflict")}</span>: {review.conflictCount}</p>
+        <p><span className="upload-status-badge is-error">{t("upload.error")}</span>: {review.errorCount}</p>
         <label>
-          Detail status
+          {t("upload.detailStatus")}
           <select
-            aria-label="Detail status"
+            aria-label={t("upload.detailStatus")}
             value={detailStatus}
             disabled={pageBusy || busy === "commit"}
             onChange={(event) => {
@@ -306,10 +331,10 @@ export function UploadPage({
               void loadPage(1, status);
             }}
           >
-            <option value="">All</option>
-            <option value="new">New</option>
-            <option value="conflict">Conflict</option>
-            <option value="error">Error</option>
+            <option value="">{t("upload.allStatuses")}</option>
+            <option value="new">{t("upload.new")}</option>
+            <option value="conflict">{t("upload.conflict")}</option>
+            <option value="error">{t("upload.error")}</option>
           </select>
         </label>
       </section>
@@ -320,17 +345,21 @@ export function UploadPage({
         busy={pageBusy || busy === "commit"}
         onPageChange={(page) => void loadPage(page)}
       />
-      {review.conflictCount > 0 && <label>
-        <input
-          type="checkbox"
-          checked={replaceConflicts}
-          disabled={currentRole !== "admin" || busy === "commit"}
-          onChange={(event) => setReplaceConflicts(event.target.checked)}
-        />
-        {t("upload.replace")}
-      </label>}
+      {review.conflictCount > 0 && <fieldset className="upload-duplicate-policy">
+        <legend>{t("upload.duplicatePolicy")}</legend>
+        <p>{t("upload.skipDuplicates")}</p>
+        <label>
+          <input
+            type="checkbox"
+            checked={replaceConflicts}
+            disabled={currentRole !== "admin" || busy === "commit"}
+            onChange={(event) => setReplaceConflicts(event.target.checked)}
+          />
+          {t("upload.replace")}
+        </label>
+      </fieldset>}
       <button type="button" disabled={commitDisabled} onClick={() => void commit()}>
-        {busy === "commit" ? t("upload.committing") : t("upload.commit")}
+        {busy === "commit" ? t("upload.committing") : t("upload.commitFinal")}
       </button>
     </>}
     {commitMessage && <p role="status" aria-live="polite">{commitMessage}</p>}
