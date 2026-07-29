@@ -203,13 +203,16 @@ export interface UploadReview {
   unknownMasterDataCount: number;
   rows: Array<NormalizedImportRow & { status: "new" | "conflict" | "error"; messages: string[] }>;
   diagnostics: Array<{ sourceSheet: string; sourceRow: number; messages: string[] }>;
-  sourceFileName?: string;
-  sourceSha256?: string;
-  workbookKind?: WorkbookKind;
-  masterCandidates?: UploadMasterCandidate[];
-  standardTimeCandidates?: UploadStandardTimeCandidate[];
-  detailTotal?: number;
-  detailPage?: number;
+}
+
+export interface LegacyUploadReview extends UploadReview {
+  sourceFileName: string;
+  sourceSha256: string;
+  workbookKind: WorkbookKind;
+  masterCandidates: UploadMasterCandidate[];
+  standardTimeCandidates: UploadStandardTimeCandidate[];
+  detailTotal: number;
+  detailPage: number;
 }
 
 export interface UploadCommitResult {

@@ -1,11 +1,28 @@
 import { describe, expect, it } from "vitest";
-import type { MasterDataSnapshot } from "../../src/domain/types";
+import type { LegacyUploadReview, MasterDataSnapshot } from "../../src/domain/types";
 import type { ImportParseResult } from "../../src/excel/contracts";
 import { deriveLegacyCandidates, median, plannedSeconds } from "../../src/upload/legacy-master-candidates";
 
 const emptyMaster = (): MasterDataSnapshot => ({
   models: [], processes: [], lines: [], shifts: [], timeSlots: [], downtimeReasons: [], standardTimes: [],
 });
+
+const candidateReviewFixture = {
+  batchId: "batch-1",
+  newCount: 0,
+  conflictCount: 0,
+  errorCount: 0,
+  unknownMasterDataCount: 0,
+  rows: [],
+  diagnostics: [],
+  sourceFileName: "legacy.xlsx",
+  sourceSha256: "a".repeat(64),
+  workbookKind: "production",
+  masterCandidates: [],
+  standardTimeCandidates: [],
+  detailTotal: 0,
+  detailPage: 1,
+} satisfies LegacyUploadReview;
 
 function parsed(overrides: Partial<ImportParseResult> = {}): ImportParseResult {
   return {
@@ -40,14 +57,19 @@ describe("legacy master candidate derivation", () => {
   it("uses the approved overnight slot table without changing NIGHT source dates", () => {
     const result = deriveLegacyCandidates(parsed({
       rows: [{ ...parsed().rows[0]!, sourceRow: 9, productionDate: "2026-07-28", shiftCode: "NIGHT", timeSlotCode: "B" }, { ...parsed().rows[0]!, sourceRow: 10, productionDate: "2026-07-28", shiftCode: "NIGHT", timeSlotCode: "C" }],
-      capacityEvidence: [],
+      capacityEvidence: [{
+        sourceSheet: "Production", sourceRow: 10, productionDate: "2026-07-28", shiftCode: "NIGHT", timeSlotCode: "C",
+        lineCode: "AOI-1", modelCode: "MODEL-1", processCode: "AOI", capacityQty: 720,
+      }],
     }), emptyMaster());
 
     expect(result.masterCandidates).toEqual(expect.arrayContaining([
       expect.objectContaining({ entity: "time_slot", parentCode: "NIGHT", code: "B", startsAt: "21:30", endsAt: "01:00", endDayOffset: 1, sequence: 2 }),
       expect.objectContaining({ entity: "time_slot", parentCode: "NIGHT", code: "C", startsAt: "01:00", endsAt: "03:00", endDayOffset: 0, sequence: 3 }),
     ]));
-    expect(result.standardTimeCandidates).toEqual([]);
+    expect(result.standardTimeCandidates[0]?.observations).toEqual([expect.objectContaining({
+      productionDate: "2026-07-28", shiftCode: "NIGHT", timeSlotCode: "C",
+    })]);
   });
 
   it("proposes the legacy downtime fallback only for positive downtime without a reason", () => {
@@ -88,6 +110,10 @@ describe("legacy master candidate derivation", () => {
 });
 
 describe("legacy standard-time candidates", () => {
+  it("requires the complete candidate-review identity and paging contract", () => {
+    expect(candidateReviewFixture.detailPage).toBe(1);
+  });
+
   it("returns the middle observation for an odd sample", () => {
     expect(median([10, 10.5, 11])).toBe(10.5);
   });
@@ -119,8 +145,8 @@ describe("legacy standard-time candidates", () => {
     const atBoundary = deriveLegacyCandidates(parsed({
       capacityEvidence: [
         { sourceSheet: "Production", sourceRow: 8, productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: "A", lineCode: "AOI-1", modelCode: "MODEL-1", processCode: "AOI", capacityQty: 720 },
-        { sourceSheet: "Production", sourceRow: 9, productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: "A", lineCode: "AOI-1", modelCode: "MODEL-1", processCode: "AOI", capacityQty: 685.7142857142857 },
-        { sourceSheet: "Production", sourceRow: 10, productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: "A", lineCode: "AOI-1", modelCode: "MODEL-1", processCode: "AOI", capacityQty: 654.5454545454545 },
+        { sourceSheet: "Production", sourceRow: 9, productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: "A", lineCode: "AOI-1", modelCode: "MODEL-1", processCode: "AOI", capacityQty: 720 },
+        { sourceSheet: "Production", sourceRow: 10, productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: "A", lineCode: "AOI-1", modelCode: "MODEL-1", processCode: "AOI", capacityQty: 685.7142857142857 },
       ],
     }), emptyMaster());
     const overBoundary = deriveLegacyCandidates(parsed({
@@ -131,8 +157,23 @@ describe("legacy standard-time candidates", () => {
       ],
     }), emptyMaster());
 
-    expect(atBoundary.standardTimeCandidates[0]).toMatchObject({ status: "new", median: 10.5, maximum: 11 });
+    expect(atBoundary.standardTimeCandidates[0]).toMatchObject({ status: "new", median: 10, maximum: 10.5 });
     expect(overBoundary.standardTimeCandidates[0]).toMatchObject({ status: "conflict", median: 10.5, maximum: 11.1 });
+  });
+
+  it("uses raw seconds per unit before deciding a deviation that display rounding would hide", () => {
+    const result = deriveLegacyCandidates(parsed({
+      capacityEvidence: [
+        { sourceSheet: "Production", sourceRow: 8, productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: "A", lineCode: "AOI-1", modelCode: "MODEL-1", processCode: "AOI", capacityQty: 720 },
+        { sourceSheet: "Production", sourceRow: 9, productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: "A", lineCode: "AOI-1", modelCode: "MODEL-1", processCode: "AOI", capacityQty: 720 },
+        { sourceSheet: "Production", sourceRow: 10, productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: "A", lineCode: "AOI-1", modelCode: "MODEL-1", processCode: "AOI", capacityQty: 685.688164260409 },
+      ],
+    }), emptyMaster());
+
+    expect(result.standardTimeCandidates).toEqual([expect.objectContaining({
+      status: "conflict", minimum: 10, median: 10, maximum: 10.5004, proposedSecondsPerUnit: null,
+      observations: expect.arrayContaining([expect.objectContaining({ secondsPerUnit: 10.5004 })]),
+    })]);
   });
 
   it("excludes blank and zero CAPA evidence and detects inclusive overlap with an open standard time", () => {
@@ -150,7 +191,7 @@ describe("legacy standard-time candidates", () => {
 
     expect(result.standardTimeCandidates).toEqual([expect.objectContaining({
       observations: [expect.objectContaining({ sheet: "Production", row: 8, secondsPerUnit: 10 })],
-      status: "conflict", proposedSecondsPerUnit: 10, approvedSecondsPerUnit: null,
+      status: "conflict", proposedSecondsPerUnit: null, approvedSecondsPerUnit: null,
     })]);
   });
 });

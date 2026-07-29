@@ -231,7 +231,7 @@ export interface UploadStandardTimeCandidate {
 }
 ```
 
-Extend `UploadReview` with `sourceFileName`, `sourceSha256`, `workbookKind`, `masterCandidates`, `standardTimeCandidates`, `detailTotal`, and `detailPage`.
+Add `LegacyUploadReview extends UploadReview` with required `sourceFileName`, `sourceSha256`, `workbookKind`, `masterCandidates`, `standardTimeCandidates`, `detailTotal`, and `detailPage`.
 
 - [ ] **Step 5: Implement the pure derivation module**
 
@@ -383,7 +383,7 @@ interface UploadApproval {
 }
 
 interface UploadRepository {
-  stageUpload(file: File): Promise<UploadReview>;
+  stageUpload(file: File): Promise<LegacyUploadReview>;
   loadDetailPage(batchId: string, page: number, status?: string): Promise<UploadDetailPage>;
   commitUpload(batchId: string, replaceConflicts: boolean, approval: UploadApproval): Promise<UploadCommitResult>;
 }

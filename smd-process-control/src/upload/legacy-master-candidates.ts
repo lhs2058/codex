@@ -188,7 +188,7 @@ function deriveStandardTimeCandidates(
       timeSlotCode: evidence.timeSlotCode,
       capacityQty: evidence.capacityQty,
       plannedSeconds: seconds,
-      secondsPerUnit: roundThree(seconds / evidence.capacityQty),
+      secondsPerUnit: seconds / evidence.capacityQty,
     };
     const key = `${evidence.modelCode}|${evidence.lineCode}|${evidence.processCode}`;
     const current = groups.get(key) ?? [];
@@ -215,18 +215,19 @@ function deriveStandardTimeCandidates(
       ...(deviationConflict ? ["CAPA evidence deviates by more than 5% from the median"] : []),
       ...(periodConflict ? ["Standard-time effective period overlaps an existing record"] : []),
     ];
+    const status = messages.length > 0 ? "conflict" : "new";
     return {
       key,
       modelCode,
       lineCode,
       processCode,
-      status: messages.length > 0 ? "conflict" : "new",
+      status,
       approved: false,
-      proposedSecondsPerUnit: roundThree(medianValue),
+      proposedSecondsPerUnit: status === "new" ? roundThree(medianValue) : null,
       approvedSecondsPerUnit: null,
-      minimum: roundThree(minimum),
-      median: roundThree(medianValue),
-      maximum: roundThree(maximum),
+      minimum,
+      median: medianValue,
+      maximum,
       effectiveFrom,
       effectiveTo: null,
       messages,
