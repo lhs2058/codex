@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "dev": "vinext dev",
+    "dev:vite": "vite",
+    "build": "tsc --noEmit && vinext build && node scripts/copy-hosting.mjs",
+    "build:vite": "tsc --noEmit && vite build",
+    "start": "vinext start",
     "test": "vitest run",
     "test:e2e": "playwright test --pass-with-no-tests",
     "seed:e2e": "node scripts/seed-e2e.mjs"
@@ -13,8 +16,8 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
     "jspdf": "4.2.1",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
     "react-router-dom": "7.18.2",
     "read-excel-file": "^5.8.8",
     "write-excel-file": "4.1.1",
@@ -22,16 +25,20 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.55.0",
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
-    "@vitejs/plugin-react": "^5.0.2",
+    "@vitejs/plugin-react": "6.0.0",
+    "@vitejs/plugin-rsc": "0.5.26",
     "fflate": "^0.8.3",
     "jsdom": "^26.1.0",
+    "react-server-dom-webpack": "19.2.6",
     "typescript": "^5.9.2",
-    "vite": "^7.1.3",
-    "vitest": "^3.2.4"
+    "vinext": "1.0.0-beta.3",
+    "vite": "8.0.0",
+    "vitest": "4.1.10"
   }
 }
