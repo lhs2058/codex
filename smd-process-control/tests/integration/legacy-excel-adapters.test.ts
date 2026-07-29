@@ -145,27 +145,30 @@ describe("legacy Excel adapters", () => {
     expect(result.rows[0].dimensions.production).toEqual({ inputQty: 0, actualQty: 100 });
   });
 
-  it("reports blank and zero CAPA as ST evidence warnings without rejecting production rows", () => {
+  it("reports blank, zero, and invalid CAPA as non-blocking ST warnings", () => {
     const sheet = productionSheet(1, 2);
     const dataRow = sheet.data[5]!;
     dataRow[8] = 120;
     dataRow[13] = null;
     dataRow[18] = 0;
+    dataRow[23] = "bad";
     dataRow[9] = 100;
     dataRow[14] = 90;
     dataRow[19] = 80;
-    [24, 29].forEach((column) => { dataRow[column] = null; });
+    dataRow[24] = 70;
+    dataRow[29] = null;
 
     const result = parseProductionWorkbook([sheet]);
 
-    expect(result.rows).toHaveLength(3);
+    expect(result.rows).toHaveLength(4);
     expect(result.capacityEvidence).toEqual([
       expect.objectContaining({ timeSlotCode: "A", capacityQty: 120 }),
     ]);
-    expect(result.diagnostics).toEqual(expect.arrayContaining([
+    expect(result.stWarnings).toEqual(expect.arrayContaining([
       expect.objectContaining({ sourceSheet: "25.07", sourceRow: 6, code: "invalid-count", field: "capacityQty" }),
     ]));
-    expect(result.diagnostics.filter(({ field }) => field === "capacityQty")).toHaveLength(2);
+    expect(result.stWarnings).toHaveLength(3);
+    expect(result.diagnostics).toEqual([]);
   });
 
   it("expands production A-E cells, retains actuals and downtime", async () => {
@@ -229,6 +232,7 @@ describe("legacy Excel adapters", () => {
       rows: [],
       diagnostics: [expect.objectContaining({ sourceSheet: "25.07", code: "missing-required-value", field: "headers" })],
       capacityEvidence: [],
+      stWarnings: [],
     });
   });
 

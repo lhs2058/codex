@@ -106,7 +106,7 @@ function parseDefects(
 export function parseStandardWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
   const production = sheets.find((sheet) => sheet.sheet === "Production");
   if (!production) {
-    return { kind: "standard", rows: [], diagnostics: [diagnostic(1, "missing-required-value", "Production sheet is required", "sheet")], capacityEvidence: [] };
+    return { kind: "standard", rows: [], diagnostics: [diagnostic(1, "missing-required-value", "Production sheet is required", "sheet")], capacityEvidence: [], stWarnings: [] };
   }
 
   const versionCells = sheets.flatMap((sheet) => sheet.data.slice(0, 30).flatMap((row) => row.slice(0, 40)));
@@ -124,6 +124,7 @@ export function parseStandardWorkbook(sheets: WorkbookSheet[]): ImportParseResul
         "template_version",
       )],
       capacityEvidence: [],
+      stWarnings: [],
     };
   }
 
@@ -132,10 +133,10 @@ export function parseStandardWorkbook(sheets: WorkbookSheet[]): ImportParseResul
     return expectedHeaders.every((header, index) => values[index] === header);
   });
   if (headerIndex < 0) {
-    return { kind: "standard", rows: [], diagnostics: [diagnostic(1, "missing-required-value", "Production headers do not match SMD_STANDARD_V1", "headers")], capacityEvidence: [] };
+    return { kind: "standard", rows: [], diagnostics: [diagnostic(1, "missing-required-value", "Production headers do not match SMD_STANDARD_V1", "headers")], capacityEvidence: [], stWarnings: [] };
   }
   if (hasData(production.data[headerIndex].slice(PRODUCTION_HEADERS.length))) {
-    return { kind: "standard", rows: [], diagnostics: [diagnostic(headerIndex + 1, "missing-required-value", "Production contains unexpected header columns", "headers")], capacityEvidence: [] };
+    return { kind: "standard", rows: [], diagnostics: [diagnostic(headerIndex + 1, "missing-required-value", "Production contains unexpected header columns", "headers")], capacityEvidence: [], stWarnings: [] };
   }
 
   const rows: ImportParseResult["rows"] = [];
@@ -198,5 +199,5 @@ export function parseStandardWorkbook(sheets: WorkbookSheet[]): ImportParseResul
   const defects = parseDefects(sheets.find((sheet) => sheet.sheet === "Defects"), bySourceRow);
   diagnostics.push(...defects.diagnostics);
   for (const defect of defects.rows) bySourceRow.get(defect.productionSourceRow)!.defects.push(defect);
-  return { kind: "standard", rows, diagnostics, capacityEvidence: [] };
+  return { kind: "standard", rows, diagnostics, capacityEvidence: [], stWarnings: [] };
 }

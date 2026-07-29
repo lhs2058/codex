@@ -54,6 +54,7 @@ export interface ImportParseResult {
   rows: NormalizedImportRow[];
   diagnostics: ImportDiagnostic[];
   capacityEvidence: CapacityEvidence[];
+  stWarnings: ImportDiagnostic[];
 }
 
 export interface StagedUploadPayloadV2 {

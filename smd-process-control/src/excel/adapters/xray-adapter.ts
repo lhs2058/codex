@@ -60,5 +60,5 @@ export function parseXrayWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
       }
     }
   }
-  return { kind: "xray", rows, diagnostics, capacityEvidence: [] };
+  return { kind: "xray", rows, diagnostics, capacityEvidence: [], stWarnings: [] };
 }

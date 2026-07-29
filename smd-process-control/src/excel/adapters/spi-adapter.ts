@@ -50,5 +50,5 @@ export function parseSpiWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
       diagnostics.splice(diagnosticStart);
     }
   }
-  return { kind: "spi", rows, diagnostics, capacityEvidence: [] };
+  return { kind: "spi", rows, diagnostics, capacityEvidence: [], stWarnings: [] };
 }

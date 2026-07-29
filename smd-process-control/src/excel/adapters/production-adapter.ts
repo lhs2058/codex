@@ -11,6 +11,7 @@ export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseRes
   const rows: ImportParseResult["rows"] = [];
   const diagnostics: ImportParseResult["diagnostics"] = [];
   const capacityEvidence: ImportParseResult["capacityEvidence"] = [];
+  const stWarnings: ImportParseResult["stWarnings"] = [];
   const candidates = sheets
     .filter((value) => /^\d{2}\.\d{1,2}$/.test(value.sheet))
     .map((sheet) => ({ sheet, layout: findProductionGroupedLayout(sheet) }));
@@ -93,13 +94,13 @@ export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseRes
               capacityQty,
             });
           } else {
-            diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "invalid-count", message: "Invalid capacityQty", field: "capacityQty" });
+            stWarnings.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "invalid-count", message: "Invalid capacityQty", field: "capacityQty" });
           }
         } catch (error) {
-          diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "invalid-count", message: String(error), field: "capacityQty" });
+          stWarnings.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "invalid-count", message: String(error), field: "capacityQty" });
         }
       }
     }
   }
-  return { kind: "production", rows, diagnostics, capacityEvidence };
+  return { kind: "production", rows, diagnostics, capacityEvidence, stWarnings };
 }

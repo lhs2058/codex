@@ -59,7 +59,7 @@
 
 **Interfaces:**
 - Consumes: existing `NormalizedImportRow`, `ProductionGroupedLayout`, and `parseProductionWorkbook(sheets)`.
-- Produces: `CapacityEvidence`, `ImportParseResult.capacityEvidence`, and `ProductionGroupedLayout.slots[].capacityColumn`.
+- Produces: `CapacityEvidence`, `ImportParseResult.capacityEvidence`, `ImportParseResult.stWarnings`, and `ProductionGroupedLayout.slots[].capacityColumn`.
 
 - [ ] **Step 1: Write failing CAPA and time-slot tests**
 
@@ -82,7 +82,7 @@ expect(result.capacityEvidence).toEqual([
 expect(result.rows[0].dimensions.production).toEqual({ inputQty: 0, actualQty: 100 });
 ```
 
-Add a second assertion that blank and zero CAPA do not emit evidence and produce diagnostics with field `capacityQty`. Rename the former “ignores CAPA as input” test to “keeps CAPA as ST evidence without adding it to detail quantities.”
+Add a second assertion that blank, zero, and invalid CAPA do not emit evidence and produce non-blocking `stWarnings` with field `capacityQty`, while `diagnostics` remains empty. Rename the former “ignores CAPA as input” test to “keeps CAPA as ST evidence without adding it to detail quantities.”
 
 - [ ] **Step 2: Run the focused parser test and confirm failure**
 
@@ -112,14 +112,15 @@ export interface ImportParseResult {
   rows: NormalizedImportRow[];
   diagnostics: ImportDiagnostic[];
   capacityEvidence: CapacityEvidence[];
+  stWarnings: ImportDiagnostic[];
 }
 ```
 
-Update every adapter return to include `capacityEvidence: []`. Extend each production slot layout with `capacityColumn: number` and discover the header normalized to `capa` within the same five-column group.
+Update every adapter return to include `capacityEvidence: []` and `stWarnings: []`. Extend each production slot layout with `capacityColumn: number` and discover the header normalized to `capa` within the same five-column group.
 
 - [ ] **Step 4: Emit validated evidence from the production adapter**
 
-For every actual production row, read the matching slot CAPA. Use `normalizeQuantity(rawCapacity, "capacityQty")`; emit evidence only when the result is greater than zero. For blank, invalid, or non-positive CAPA, append one source-located `invalid-count` diagnostic with `field: "capacityQty"` and keep the production detail row valid by treating this diagnostic as an ST warning in Task 2 rather than a detail-row error.
+For every actual production row, read the matching slot CAPA. Use `normalizeQuantity(rawCapacity, "capacityQty")`; emit evidence only when the result is greater than zero. For blank, invalid, or non-positive CAPA, append one source-located `invalid-count` entry to `stWarnings` with `field: "capacityQty"`. Do not add CAPA findings to blocking `diagnostics`; the production detail row remains valid.
 
 Use the same normalized model, line, process, shift, date, slot, sheet, and row values as the corresponding production detail row.
 
@@ -428,7 +429,7 @@ Call `find_completed_upload_by_hash` before Storage upload. If found, load its r
 After parsing and loading master data:
 
 1. call `deriveLegacyCandidates(parsed, masterData)`;
-2. move diagnostics whose field is `capacityQty` into source-located ST warnings so they do not invalidate the corresponding detail row;
+2. consume `parsed.stWarnings` as source-located ST warnings without adding them to detail-row diagnostics or error counts;
 3. use existing IDs only for duplicate prefetch;
 4. mark structurally valid rows as new even when their model/line/shift/slot/reason is an approved candidate;
 5. stage rows in 500-row chunks;

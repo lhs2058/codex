@@ -57,5 +57,5 @@ export function parseIctWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
       }
     }
   }
-  return { kind: "ict", rows, diagnostics, capacityEvidence: [] };
+  return { kind: "ict", rows, diagnostics, capacityEvidence: [], stWarnings: [] };
 }

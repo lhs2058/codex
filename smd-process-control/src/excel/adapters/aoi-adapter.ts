@@ -54,5 +54,5 @@ export function parseAoiWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
       diagnostics.splice(diagnosticStart);
     }
   }
-  return { kind: "aoi", rows, diagnostics, capacityEvidence: [] };
+  return { kind: "aoi", rows, diagnostics, capacityEvidence: [], stWarnings: [] };
 }
