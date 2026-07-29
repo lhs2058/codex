@@ -491,7 +491,7 @@ export function createUploadRepository(
     options.prefetchExisting = undefined;
   }
   const loadDetailPage = async (batchId: string, page: number, status?: string): Promise<UploadDetailPage> => {
-    const safePage = Math.max(1, Math.floor(page));
+    const safePage = Number.isFinite(page) ? Math.max(1, Math.floor(page)) : 1;
     const result = requestData(await client.rpc("list_upload_detail_page", {
       p_batch_id: batchId,
       p_offset: (safePage - 1) * DETAIL_PAGE_SIZE,
@@ -515,27 +515,35 @@ export function createUploadRepository(
       });
       if (completed.error) throw new UploadRepositoryError(completed.error);
       if (completed.data) {
-        const duplicate = completed.data as { id: string; sourceFileName: string; workbookKind: DomainLegacyUploadReview["workbookKind"] };
+        const duplicate = completed.data as {
+          id: string;
+          sourceFileName: string;
+          workbookKind: DomainLegacyUploadReview["workbookKind"];
+          newCount?: number;
+          conflictCount?: number;
+          errorCount?: number;
+          defectCount?: number;
+          detailTotal?: number;
+        };
         const detail = await loadDetailPage(String(duplicate.id), 1);
-        const rows = detail.rows;
         return {
           batchId: String(duplicate.id),
           sourceFileName: String(duplicate.sourceFileName),
           sourceSha256,
           workbookKind: duplicate.workbookKind,
-          newCount: rows.filter((row) => row.status === "new").length,
-          conflictCount: rows.filter((row) => row.status === "conflict").length,
-          errorCount: rows.filter((row) => row.status === "error").length + detail.diagnostics.length,
+          newCount: Number(duplicate.newCount ?? 0),
+          conflictCount: Number(duplicate.conflictCount ?? 0),
+          errorCount: Number(duplicate.errorCount ?? 0),
           unknownMasterDataCount: 0,
-          defectCount: rows.reduce((total, row) => total + row.defects.length, 0),
-          rows,
+          defectCount: Number(duplicate.defectCount ?? 0),
+          rows: detail.rows,
           diagnostics: detail.diagnostics,
           masterCandidates: [],
           standardTimeCandidates: [],
           masterCandidateCount: 0,
           standardTimeCandidateCount: 0,
           stWarnings: [],
-          detailTotal: detail.total,
+          detailTotal: Number(duplicate.detailTotal ?? detail.total),
           detailPage: detail.page,
           duplicateCompletedBatch: true,
         };
@@ -552,6 +560,13 @@ export function createUploadRepository(
       }
       const masterData = await options.listMasterData();
       const candidates = deriveLegacyCandidates(parsed, masterData);
+      const candidateMessages = new Map<string, string[]>();
+      for (const diagnostic of candidates.diagnostics) {
+        const key = `${diagnostic.sourceSheet}|${diagnostic.sourceRow}`;
+        const messages = candidateMessages.get(key) ?? [];
+        messages.push(diagnostic.message);
+        candidateMessages.set(key, messages);
+      }
       if (
         parsed.rows.length >= UPLOAD_EXISTING_PREFETCH_THRESHOLD
         && options.prefetchExisting
@@ -580,7 +595,8 @@ export function createUploadRepository(
       let unknownMasterDataCount = 0;
       for (const row of parsed.rows) {
         const ids = existingMasterIds(row, masterData);
-        let messages = structuralMessages(row, masterData);
+        const structural = structuralMessages(row, masterData);
+        let messages = [...structural, ...(candidateMessages.get(`${row.sourceSheet}|${row.sourceRow}`) ?? [])];
         let status: UploadReview["rows"][number]["status"] = "new";
         const target = row.dimensions.production ? "production" : "quality";
         const rowKind = target === "production" ? "production" : "daily_quality";
@@ -588,7 +604,7 @@ export function createUploadRepository(
         let expectedTargetVersion: number | null = null;
         if (messages.length) {
           status = "error";
-          unknownMasterDataCount += 1;
+          unknownMasterDataCount += structural.length > 0 ? 1 : 0;
         } else if (seen.has(rowKey(row))) {
           status = "error";
           messages = ["Duplicate record in workbook"];
@@ -695,10 +711,17 @@ export function createUploadRepository(
           p_standard_time_candidates: candidates.standardTimeCandidates,
         }), "upload_candidate_stage_failed");
       } catch (error) {
-        if (error instanceof UploadRepositoryError) error.batchId = batch.id;
-        throw error;
+        const retryError = error instanceof UploadRepositoryError
+          ? error
+          : new UploadRepositoryError(error instanceof Error ? error.message : String(error));
+        if (!(retryError.code) && typeof error === "object" && error !== null && "code" in error) {
+          retryError.code = String((error as { code: unknown }).code);
+        }
+        retryError.batchId = batch.id;
+        throw retryError;
       }
       const defectCount = reviewedRows.reduce((total, row) => total + row.defects.length, 0);
+      const detail = await loadDetailPage(batch.id, 1);
       return {
         batchId: batch.id,
         sourceFileName: file.name,
@@ -709,26 +732,34 @@ export function createUploadRepository(
         errorCount,
         unknownMasterDataCount,
         defectCount,
-        rows: reviewedRows,
-        diagnostics,
+        rows: detail.rows,
+        diagnostics: detail.diagnostics,
         masterCandidates: candidates.masterCandidates,
         standardTimeCandidates: candidates.standardTimeCandidates,
         masterCandidateCount: Number(stagedCandidates.masterCandidateCount ?? 0),
         standardTimeCandidateCount: Number(stagedCandidates.standardTimeCandidateCount ?? 0),
         stWarnings: candidates.stWarnings,
-        detailTotal: stagedRows.length,
-        detailPage: 1,
+        detailTotal: detail.total,
+        detailPage: detail.page,
       };
     },
 
     loadDetailPage,
 
     async commitUpload(batchId, replaceConflicts, approval = { masterCandidates: [], standardTimeCandidates: [] }) {
+      const masterApprovals = approval.masterCandidates.map(({ key, approved, approvedName }) => ({ key, approved, approvedName }));
+      const standardTimeApprovals = approval.standardTimeCandidates.map(({
+        key,
+        approved,
+        approvedSecondsPerUnit,
+        effectiveFrom,
+        effectiveTo,
+      }) => ({ key, approved, approvedSecondsPerUnit, effectiveFrom, effectiveTo }));
       const result = await client.rpc("commit_upload_batch_with_masters", {
         p_batch_id: batchId,
         p_replace_conflicts: replaceConflicts,
-        p_master_approvals: approval.masterCandidates,
-        p_standard_time_approvals: approval.standardTimeCandidates,
+        p_master_approvals: masterApprovals,
+        p_standard_time_approvals: standardTimeApprovals,
       });
       const data = requestData(result, "upload_commit_failed");
       return {

@@ -72,9 +72,12 @@ function candidateRpc(events?: string[]) {
   return vi.fn(async (name: string) => {
     if (name === "find_completed_upload_by_hash") events?.push("hash-check");
     if (name === "stage_upload_candidates") events?.push("stage-candidates");
+    if (name === "list_upload_detail_page") events?.push("detail-page");
     return {
       data: name === "stage_upload_candidates"
         ? { batchId: "batch-1", masterCandidateCount: 4, standardTimeCandidateCount: 0 }
+        : name === "list_upload_detail_page"
+          ? { total: 0, rows: [] }
         : null,
       error: null,
     };
@@ -113,7 +116,7 @@ describe("upload repository", () => {
       newCount: 1,
       errorCount: 0,
     }));
-    expect(events).toEqual(["hash-check", "storage", "upload_batches", "upload_rows", "stage-candidates"]);
+    expect(events).toEqual(["hash-check", "storage", "upload_batches", "upload_rows", "stage-candidates", "detail-page"]);
     expect(inserted.upload_batches).toEqual(expect.objectContaining({
       storage_path: "user-1/upload-1-production.xlsx",
       workbook_kind: "standard",
@@ -154,7 +157,10 @@ describe("upload repository", () => {
     const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => {
       if (name === "find_completed_upload_by_hash") {
         expect(params.p_source_sha256).toMatch(/^[0-9a-f]{64}$/);
-        return { data: { id: "completed-1", sourceFileName: "already.xlsx", workbookKind: "production", completedAt: "2026-07-29T00:00:00Z" }, error: null };
+        return { data: {
+          id: "completed-1", sourceFileName: "already.xlsx", workbookKind: "production", completedAt: "2026-07-29T00:00:00Z",
+          newCount: 401, conflictCount: 10, errorCount: 2, defectCount: 33, detailTotal: 413,
+        }, error: null };
       }
       if (name === "list_upload_detail_page") {
         expect(params).toEqual({ p_batch_id: "completed-1", p_offset: 0, p_limit: 200, p_status: null });
@@ -179,7 +185,11 @@ describe("upload repository", () => {
       batchId: "completed-1",
       sourceFileName: "already.xlsx",
       duplicateCompletedBatch: true,
-      detailTotal: 1,
+      detailTotal: 413,
+      newCount: 401,
+      conflictCount: 10,
+      errorCount: 2,
+      defectCount: 33,
       rows: [expect.objectContaining({ sourceRow: 3, status: "new" })],
     });
     expect(storage).not.toHaveBeenCalled();
@@ -217,6 +227,91 @@ describe("upload repository", () => {
     });
   });
 
+  it("returns only the first server detail page after staging while retaining parse aggregate counts", async () => {
+    const insertedRows = vi.fn().mockResolvedValue({ data: null, error: null });
+    const rpc = vi.fn(async (name: string) => {
+      if (name === "find_completed_upload_by_hash") return { data: null, error: null };
+      if (name === "stage_upload_candidates") return { data: { masterCandidateCount: 0, standardTimeCandidateCount: 0 }, error: null };
+      if (name === "list_upload_detail_page") return { data: { total: 201, rows: [{ sourceSheet: "Production", sourceRow: 3, rowKind: "production", status: "new", messages: [], payload: {
+        productionDate: "2026-07-28", shiftCode: "DAY", timeSlotCode: "A", lineCode: "LINE-1", modelCode: "MODEL-A", processCode: "AOI", note: "", production: { inputQty: 10, actualQty: 9 }, quality: null, downtime: null, defects: [], warnings: [],
+      } }] }, error: null };
+      throw new Error(`unexpected RPC ${name}`);
+    });
+    const repository = createUploadRepository({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }) },
+      storage: { from: () => ({ upload: vi.fn().mockResolvedValue({ data: { path: "stored.xlsx" }, error: null }) }) },
+      from: vi.fn((table: string) => ({ insert: table === "upload_batches"
+        ? () => ({ select: () => ({ single: async () => ({ data: { id: "paged-batch" }, error: null }) }) })
+        : insertedRows })),
+      rpc,
+    } as unknown as UploadRepositoryClient, {
+      readWorkbook: vi.fn().mockResolvedValue([]),
+      parseWorkbook: () => ({ kind: "production", rows: [parsedRow, { ...parsedRow, sourceRow: 4, productionDate: "2026-07-29" }], diagnostics: [], capacityEvidence: [], stWarnings: [] }),
+      listMasterData: vi.fn().mockResolvedValue(masterData),
+      findExisting: vi.fn().mockResolvedValue(null),
+    });
+
+    await expect(repository.stageUpload(file())).resolves.toMatchObject({
+      newCount: 2,
+      detailTotal: 201,
+      detailPage: 1,
+      rows: [expect.objectContaining({ sourceRow: 3 })],
+    });
+  });
+
+  it("maps invalid candidate dimensions to source detail-row errors", async () => {
+    const insertedRows = vi.fn().mockResolvedValue({ data: null, error: null });
+    const rpc = vi.fn(async (name: string) => {
+      if (name === "find_completed_upload_by_hash") return { data: null, error: null };
+      if (name === "stage_upload_candidates") return { data: { masterCandidateCount: 0, standardTimeCandidateCount: 0 }, error: null };
+      if (name === "list_upload_detail_page") return { data: { total: 1, rows: [] }, error: null };
+      throw new Error(`unexpected RPC ${name}`);
+    });
+    const repository = createUploadRepository({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }) },
+      storage: { from: () => ({ upload: vi.fn().mockResolvedValue({ data: { path: "stored.xlsx" }, error: null }) }) },
+      from: vi.fn((table: string) => ({ insert: table === "upload_batches"
+        ? () => ({ select: () => ({ single: async () => ({ data: { id: "invalid-dimension" }, error: null }) }) })
+        : insertedRows })),
+      rpc,
+    } as unknown as UploadRepositoryClient, {
+      readWorkbook: vi.fn().mockResolvedValue([]),
+      parseWorkbook: () => ({ kind: "production", rows: [{ ...parsedRow, shiftCode: "WEEKEND" }], diagnostics: [], capacityEvidence: [], stWarnings: [] }),
+      listMasterData: vi.fn().mockResolvedValue(masterData),
+      findExisting: vi.fn().mockResolvedValue(null),
+    });
+
+    await expect(repository.stageUpload(file())).resolves.toMatchObject({ errorCount: 1 });
+    expect(insertedRows).toHaveBeenCalledWith([expect.objectContaining({
+      source_row: 3,
+      status: "error",
+      row_kind: "diagnostic",
+      messages: expect.arrayContaining(["Unsupported shiftCode: shift"]),
+    })]);
+  });
+
+  it("keeps the persisted batch id when candidate staging throws a runtime error", async () => {
+    const repository = createUploadRepository({
+      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }) },
+      storage: { from: () => ({ upload: vi.fn().mockResolvedValue({ data: { path: "stored.xlsx" }, error: null }) }) },
+      from: vi.fn((table: string) => ({ insert: table === "upload_batches"
+        ? () => ({ select: () => ({ single: async () => ({ data: { id: "retry-batch" }, error: null }) }) })
+        : vi.fn().mockResolvedValue({ data: null, error: null }) })),
+      rpc: vi.fn(async (name: string) => {
+        if (name === "find_completed_upload_by_hash") return { data: null, error: null };
+        if (name === "stage_upload_candidates") throw new Error("network lost");
+        throw new Error(`unexpected RPC ${name}`);
+      }),
+    } as unknown as UploadRepositoryClient, {
+      readWorkbook: vi.fn().mockResolvedValue([]),
+      parseWorkbook: () => ({ kind: "production", rows: [parsedRow], diagnostics: [], capacityEvidence: [], stWarnings: [] }),
+      listMasterData: vi.fn().mockResolvedValue(masterData),
+      findExisting: vi.fn().mockResolvedValue(null),
+    });
+
+    await expect(repository.stageUpload(file())).rejects.toMatchObject({ message: "network lost", batchId: "retry-batch" });
+  });
+
   it("stages derived master candidates while keeping rows with candidate masters committable", async () => {
     const insertedRows = vi.fn().mockResolvedValue({ data: null, error: null });
     const rpc = vi.fn(async (name: string, params: Record<string, unknown>) => {
@@ -230,6 +325,7 @@ describe("upload repository", () => {
         expect(params.p_standard_time_candidates).toEqual([]);
         return { data: { batchId: "batch-candidates", masterCandidateCount: 4, standardTimeCandidateCount: 0 }, error: null };
       }
+      if (name === "list_upload_detail_page") return { data: { total: 1, rows: [] }, error: null };
       throw new Error(`unexpected RPC ${name}`);
     });
     const candidateMasterData = {
@@ -393,7 +489,7 @@ describe("upload repository", () => {
 
     await expect(repository.stageUpload(file())).resolves.toMatchObject({
       errorCount: 1,
-      diagnostics: [{ sourceSheet: "Production", sourceRow: 4 }],
+      diagnostics: [],
     });
     expect(insertedRows).toHaveBeenCalledWith([
       expect.objectContaining({
@@ -491,11 +587,6 @@ describe("upload repository", () => {
     const result = await repository.stageUpload(file());
 
     expect(result).toMatchObject({ newCount: 1, errorCount: 0 });
-    expect(result.rows[0]).toMatchObject({
-      status: "new",
-      reviewRequired: true,
-      messages: ["Review required: legacy downtime reason was unspecified"],
-    });
     expect(insertedRows).toHaveBeenCalledWith([
       expect.objectContaining({
         status: "new",
@@ -565,23 +656,6 @@ describe("upload repository", () => {
 
     const result = await repository.stageUpload(file());
     expect(result).toEqual(expect.objectContaining({ conflictCount: 1, errorCount: 0, unknownMasterDataCount: 0 }));
-    expect(result.rows).toEqual([
-      expect.objectContaining({
-        sourceRow: 3,
-        status: "conflict",
-        rowKind: "production",
-        targetRecordId: "existing",
-        expectedTargetVersion: 7,
-      }),
-      expect.objectContaining({
-        sourceRow: 4,
-        status: "new",
-        rowKind: "production",
-        targetRecordId: null,
-        expectedTargetVersion: null,
-        messages: [],
-      }),
-    ]);
     expect(rowInsert).toHaveBeenCalledWith([
       expect.objectContaining({
         status: "conflict",
@@ -705,7 +779,7 @@ describe("upload repository", () => {
     }, error: null });
     const repository = createUploadRepository({ rpc } as unknown as UploadRepositoryClient);
     const approval = {
-      masterCandidates: [{ key: "model|MODEL-A", approved: true, approvedName: "Model A" }],
+      masterCandidates: [{ key: "model|MODEL-A", approved: true, approvedName: "Model A", masterId: "must-not-leak" }],
       standardTimeCandidates: [{ key: "MODEL-A|LINE-1|AOI", approved: true, approvedSecondsPerUnit: 12.5, effectiveFrom: "2026-07-28", effectiveTo: null }],
     };
     await expect(repository.commitUpload("batch-1", true, approval)).resolves.toEqual({
@@ -714,7 +788,7 @@ describe("upload repository", () => {
     expect(rpc).toHaveBeenCalledWith("commit_upload_batch_with_masters", {
       p_batch_id: "batch-1",
       p_replace_conflicts: true,
-      p_master_approvals: approval.masterCandidates,
+      p_master_approvals: [{ key: "model|MODEL-A", approved: true, approvedName: "Model A" }],
       p_standard_time_approvals: approval.standardTimeCandidates,
     });
   });
