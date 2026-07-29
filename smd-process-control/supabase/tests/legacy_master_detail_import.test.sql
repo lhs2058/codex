@@ -42,19 +42,23 @@ values
     'LEGACY-VIEWER', 'Legacy viewer', 'viewer', true
   );
 
-insert into public.models (id, code, name)
+insert into public.models (id, code, name, is_active)
 values
   (
     '23000000-0000-0000-0000-000000000101',
-    'LEGACY-MODEL', 'Legacy Model'
+    'LEGACY-MODEL', 'Legacy Model', true
   ),
   (
     '23000000-0000-0000-0000-000000000106',
-    'CONFLICT-MODEL', 'Canonical model'
+    'CONFLICT-MODEL', 'Canonical model', true
   ),
   (
     '23000000-0000-0000-0000-000000000107',
-    'OVERLAP-MODEL', 'Overlap Model'
+    'OVERLAP-MODEL', 'Overlap Model', true
+  ),
+  (
+    '23000000-0000-0000-0000-000000000109',
+    'INACTIVE-IMPORT-MODEL', 'Inactive import model', false
   );
 
 insert into public.lines (id, code, name)
@@ -86,15 +90,23 @@ values (
 
 insert into public.standard_times (
   id, model_id, process_id, line_id, seconds_per_unit,
-  effective_from, effective_to
+  effective_from, effective_to, deleted_at
 )
-values (
-  '23000000-0000-0000-0000-000000000108',
-  '23000000-0000-0000-0000-000000000107',
-  (select id from public.processes where code = 'AOI'),
-  '23000000-0000-0000-0000-000000000102',
-  12, '2026-01-01', '2026-06-01'
-);
+values
+  (
+    '23000000-0000-0000-0000-000000000108',
+    '23000000-0000-0000-0000-000000000107',
+    (select id from public.processes where code = 'AOI'),
+    '23000000-0000-0000-0000-000000000102',
+    12, '2026-01-01', '2026-06-01', null
+  ),
+  (
+    '23000000-0000-0000-0000-000000000110',
+    '23000000-0000-0000-0000-000000000109',
+    (select id from public.processes where code = 'AOI'),
+    '23000000-0000-0000-0000-000000000102',
+    15, '2025-01-01', '2025-06-01', now()
+  );
 
 insert into public.upload_batches (
   id, source_file_name, storage_path, workbook_kind, status, source_sha256,
@@ -156,6 +168,22 @@ values
     'production', 'staged', repeat('1', 64),
     '23000000-0000-0000-0000-000000000002',
     '23000000-0000-0000-0000-000000000002'
+  ),
+  (
+    '23000000-0000-0000-0000-000000000019',
+    'operator-forged-existing.xlsx',
+    'private/operator-forged-existing.xlsx',
+    'standard', 'staged', repeat('9', 64),
+    '23000000-0000-0000-0000-000000000001',
+    '23000000-0000-0000-0000-000000000001'
+  ),
+  (
+    '23000000-0000-0000-0000-000000000020',
+    'operator-existing-only.xlsx',
+    'private/operator-existing-only.xlsx',
+    'standard', 'staged', repeat('8', 64),
+    '23000000-0000-0000-0000-000000000001',
+    '23000000-0000-0000-0000-000000000001'
   );
 
 select ok(
@@ -210,6 +238,28 @@ select ok(
   'all four legacy import RPC signatures exist'
 );
 select ok(
+  to_regprocedure('public.list_import_master_data()') is not null
+  and (
+    select procedure.prosecdef
+      and procedure.proconfig @> array['search_path=']
+    from pg_proc as procedure
+    join pg_namespace as namespace
+      on namespace.oid = procedure.pronamespace
+    where namespace.nspname = 'public'
+      and procedure.proname = 'list_import_master_data'
+  ),
+  'import snapshot RPC is SECURITY DEFINER with an empty search path'
+);
+select ok(
+  not has_function_privilege(
+    'anon', 'public.list_import_master_data()', 'EXECUTE'
+  )
+  and has_function_privilege(
+    'authenticated', 'public.list_import_master_data()', 'EXECUTE'
+  ),
+  'only authenticated clients can execute the import snapshot RPC'
+);
+select ok(
   (
     select count(*) = 4
     from pg_proc as procedure
@@ -257,10 +307,39 @@ select ok(
 );
 
 set local role authenticated;
+select set_config('request.jwt.claim.sub', '', true);
+select throws_ok(
+  $$select public.list_import_master_data()$$,
+  '42501', 'insufficient_privilege',
+  'import snapshot rejects missing authentication'
+);
 select set_config(
   'request.jwt.claim.sub',
   '23000000-0000-0000-0000-000000000001',
   true
+);
+select ok(
+  (public.list_import_master_data() -> 'models') @>
+    jsonb_build_array(jsonb_build_object(
+      'id', '23000000-0000-0000-0000-000000000109',
+      'code', 'INACTIVE-IMPORT-MODEL',
+      'name', 'Inactive import model',
+      'is_active', false
+    )),
+  'import snapshot includes inactive undeleted masters'
+);
+select ok(
+  (public.list_import_master_data() -> 'standard_times') @>
+    jsonb_build_array(jsonb_build_object(
+      'id', '23000000-0000-0000-0000-000000000108'
+    ))
+  and not (
+    (public.list_import_master_data() -> 'standard_times') @>
+      jsonb_build_array(jsonb_build_object(
+        'id', '23000000-0000-0000-0000-000000000110'
+      ))
+  ),
+  'import snapshot includes undeleted ST and excludes soft-deleted ST'
 );
 select lives_ok(
   $$select public.stage_upload_candidates(
@@ -285,6 +364,86 @@ select throws_ok(
     )$$,
   '42501', 'admin_required',
   'an operator cannot replace records from another upload'
+);
+select lives_ok(
+  $$select public.stage_upload_candidates(
+      '23000000-0000-0000-0000-000000000011',
+      jsonb_build_array(jsonb_build_object(
+        'key', 'model|OPERATOR-NEW-MODEL',
+        'entity', 'model',
+        'code', 'OPERATOR-NEW-MODEL',
+        'parentCode', null,
+        'proposedName', 'OPERATOR-NEW-MODEL',
+        'status', 'new',
+        'messages', '[]'::jsonb,
+        'sources', jsonb_build_array(jsonb_build_object(
+          'sheet', 'Production', 'row', 2
+        ))
+      )),
+      '[]'::jsonb
+    )$$,
+  'an operator can stage a new master candidate for admin review'
+);
+select throws_ok(
+  $$select public.commit_upload_batch(
+      '23000000-0000-0000-0000-000000000011',
+      false
+    )$$,
+  '42501', 'upload_candidates_require_admin',
+  'operator no-master commit rejects a staged new master candidate'
+);
+select lives_ok(
+  $$select public.stage_upload_candidates(
+      '23000000-0000-0000-0000-000000000019',
+      jsonb_build_array(jsonb_build_object(
+        'key', 'model|FORGED-EXISTING-MODEL',
+        'entity', 'model',
+        'code', 'FORGED-EXISTING-MODEL',
+        'parentCode', null,
+        'proposedName', 'FORGED-EXISTING-MODEL',
+        'status', 'existing',
+        'messages', '[]'::jsonb,
+        'sources', jsonb_build_array(jsonb_build_object(
+          'sheet', 'Production', 'row', 2
+        ))
+      )),
+      '[]'::jsonb
+    )$$,
+  'an operator can only label, not prove, a candidate as existing'
+);
+select throws_ok(
+  $$select public.commit_upload_batch(
+      '23000000-0000-0000-0000-000000000019',
+      false
+    )$$,
+  '42501', 'upload_candidates_require_admin',
+  'operator no-master commit re-resolves a forged existing candidate'
+);
+select lives_ok(
+  $$select public.stage_upload_candidates(
+      '23000000-0000-0000-0000-000000000020',
+      jsonb_build_array(jsonb_build_object(
+        'key', 'shift|DAY',
+        'entity', 'shift',
+        'code', 'DAY',
+        'parentCode', null,
+        'proposedName', 'DAY',
+        'status', 'existing',
+        'messages', '[]'::jsonb,
+        'sources', jsonb_build_array(jsonb_build_object(
+          'sheet', 'Production', 'row', 2
+        ))
+      )),
+      '[]'::jsonb
+    )$$,
+  'an operator can stage a truly existing candidate'
+);
+select lives_ok(
+  $$select public.commit_upload_batch(
+      '23000000-0000-0000-0000-000000000020',
+      false
+    )$$,
+  'operator no-master commit accepts a re-resolved existing-only batch'
 );
 
 select set_config(

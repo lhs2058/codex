@@ -104,6 +104,26 @@ describe("final database and security migration contracts", () => {
     expect(sql).toMatch(/alter extension btree_gist set schema extensions/i);
   });
 
+  it("guards operator commits with immutable candidates and exposes an import-only snapshot", () => {
+    const sql = readMigration("026_secure_operator_import_snapshot.sql");
+
+    expect(sql).toMatch(/alter function public\.commit_upload_batch\(uuid,\s*boolean\)\s+rename to commit_upload_batch_v26_impl/i);
+    expect(sql).toMatch(/revoke all on function public\.commit_upload_batch_v26_impl\(uuid,\s*boolean\)/i);
+    expect(sql).toMatch(/from public\.upload_master_candidates[\s\S]*status <> 'existing'/i);
+    expect(sql).toMatch(/from public\.upload_standard_time_candidates[\s\S]*status <> 'existing'/i);
+    expect(sql).toMatch(/from public\.models as model[\s\S]*model\.is_active[\s\S]*model\.deleted_at is null/i);
+    expect(sql).toMatch(/from public\.standard_times as standard_time[\s\S]*standard_time\.deleted_at is null/i);
+    expect(sql).toMatch(/upload_candidates_require_admin/i);
+    expect(sql).toMatch(/return public\.commit_upload_batch_v26_impl\(/i);
+    expect(sql).toMatch(/create (?:or replace )?function public\.list_import_master_data\(\)/i);
+    expect(sql).toMatch(/security definer[\s\S]*set search_path = ''/i);
+    expect(sql).toMatch(/from private\.current_profile\(\)/i);
+    expect(sql).toMatch(/actor_profile\.app_role not in \('viewer', 'operator', 'admin'\)/i);
+    expect(sql).toMatch(/from public\.standard_times as standard_time[\s\S]*where standard_time\.deleted_at is null/i);
+    expect(sql).toMatch(/revoke all on function public\.list_import_master_data\(\)\s+from public, anon, authenticated/i);
+    expect(sql).toMatch(/grant execute on function public\.list_import_master_data\(\)\s+to authenticated/i);
+  });
+
   it("rejects inactive manual dimensions and exposes hardened optimistic admin RPCs only to intended roles", () => {
     const uploadSql = readMigration("018_atomic_upload_and_manual_validation.sql");
     const adminSql = readMigration("019_admin_rpc_and_verified_actor.sql");

@@ -361,7 +361,7 @@ export function createMasterDataRepository(client: MasterDataClient = getSupabas
   return {
     listMasterData: loadActiveSnapshot,
     async listImportMasterData() {
-      return mapSnapshot(await rpcResult<HistoricalMasterDataPayload>(client, "list_historical_master_data"));
+      return mapSnapshot(await rpcResult<HistoricalMasterDataPayload>(client, "list_import_master_data"));
     },
     async listHistoricalMasterData() {
       return mapSnapshot(await rpcResult<HistoricalMasterDataPayload>(client, "list_historical_master_data"));

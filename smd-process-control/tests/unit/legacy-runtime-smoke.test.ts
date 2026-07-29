@@ -22,6 +22,7 @@ describe("legacy master/detail plain PostgreSQL smoke suite", () => {
 
   it.each([
     "operator approval denial",
+    "operator candidate bypass denial",
     "atomic master ST detail commit",
     "same batch idempotency",
     "inclusive ST overlap rejection",

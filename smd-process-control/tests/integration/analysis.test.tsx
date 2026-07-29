@@ -93,7 +93,15 @@ describe("analysis repository", () => {
         shifts: [{ id: "shift-day", code: "DAY", name: "Day", is_active: true, version: 1 }],
         time_slots: [{ id: "slot-a", shift_id: "shift-day", code: "A", starts_at: "07:30", ends_at: "09:30", end_day_offset: 0, sequence: 1, is_active: true, version: 1 }],
         downtime_reasons: [],
-        standard_times: [],
+        standard_times: [{
+          id: "st-live",
+          model_id: "model-inactive",
+          process_id: "process-aoi",
+          line_id: "line-1",
+          seconds_per_unit: 12,
+          effective_from: "2026-01-01",
+          effective_to: "2026-06-30",
+        }],
       },
       error: null,
     });
@@ -101,9 +109,12 @@ describe("analysis repository", () => {
 
     const result = await createMasterDataRepository(client as any).listImportMasterData();
 
-    expect(rpc).toHaveBeenCalledWith("list_historical_master_data");
+    expect(rpc).toHaveBeenCalledWith("list_import_master_data");
     expect(result.models).toEqual([
       expect.objectContaining({ code: "MODEL-X", name: "Retired model", active: false }),
+    ]);
+    expect(result.standardTimes).toEqual([
+      expect.objectContaining({ id: "st-live", secondsPerUnit: 12 }),
     ]);
     const derived = deriveLegacyCandidates({
       kind: "production",

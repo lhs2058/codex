@@ -1,7 +1,7 @@
 begin;
 
--- Plain PostgreSQL runtime smoke suite for migration 023.
--- Requirements: migration 023 applied; execute as the project database owner.
+-- Plain PostgreSQL runtime smoke suite for legacy import migrations.
+-- Requirements: migrations through 026 applied; execute as the project database owner.
 -- Every fixture and assertion is contained by this transaction and rolled back.
 
 insert into auth.users (
@@ -168,6 +168,46 @@ begin
   if not caught_expected then
     raise exception
       'SMOKE_ASSERT: operator approval denial expected 42501 admin_required';
+  end if;
+end
+$smoke$;
+
+select public.stage_upload_candidates(
+  '23900000-0000-0000-0000-000000000011',
+  jsonb_build_array(jsonb_build_object(
+    'key', 'model|SMOKE-OPERATOR-NEW-023',
+    'entity', 'model',
+    'code', 'SMOKE-OPERATOR-NEW-023',
+    'parentCode', null,
+    'proposedName', 'SMOKE-OPERATOR-NEW-023',
+    'status', 'new',
+    'messages', '[]'::jsonb,
+    'sources', jsonb_build_array(jsonb_build_object(
+      'sheet', 'Production', 'row', 2
+    ))
+  )),
+  '[]'::jsonb
+);
+
+do $smoke$
+declare
+  caught_expected boolean := false;
+begin
+  begin
+    perform public.commit_upload_batch(
+      '23900000-0000-0000-0000-000000000011',
+      false
+    );
+  exception when sqlstate '42501' then
+    if sqlerrm <> 'upload_candidates_require_admin' then
+      raise;
+    end if;
+    caught_expected := true;
+  end;
+
+  if not caught_expected then
+    raise exception
+      'SMOKE_ASSERT: operator candidate bypass denial expected 42501 upload_candidates_require_admin';
   end if;
 end
 $smoke$;
