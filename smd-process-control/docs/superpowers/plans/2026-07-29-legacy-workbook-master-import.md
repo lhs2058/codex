@@ -265,7 +265,6 @@ git commit -m "feat: derive import master and ST candidates"
 **Files:**
 - Create: `supabase/migrations/023_legacy_master_detail_import.sql`
 - Create: `supabase/tests/legacy_master_detail_import.test.sql`
-- Modify: `tests/unit/db-security-fix-contract.test.ts`
 
 **Interfaces:**
 - Consumes: upload batch/row contract v2, existing master and production tables, `auth.uid()`, `private.current_profile()`.
@@ -275,27 +274,15 @@ git commit -m "feat: derive import master and ST candidates"
   - `public.list_upload_detail_page(p_batch_id uuid, p_offset integer, p_limit integer, p_status text default null)`
   - `public.commit_upload_batch_with_masters(p_batch_id uuid, p_replace_conflicts boolean, p_master_approvals jsonb, p_standard_time_approvals jsonb)`
 
-- [ ] **Step 1: Write failing SQL contract assertions**
+- [ ] **Step 1: Write failing database behavior assertions**
 
-In the TypeScript contract test, read migration 023 and assert it contains:
+In the SQL test, construct batches for an operator and an admin and assert non-admin approval raises `admin_required`. Query `information_schema.columns`, `pg_tables`, `pg_proc`, and `information_schema.routine_privileges` to assert the batch hash column, both candidate tables, all four RPC signatures, RLS enablement, and revoked public execution exist as runtime database objects.
 
-```ts
-expect(sql).toContain("source_sha256 text");
-expect(sql).toContain("create table public.upload_master_candidates");
-expect(sql).toContain("create table public.upload_standard_time_candidates");
-expect(sql).toContain("create function public.commit_upload_batch_with_masters");
-expect(sql).toContain("for update");
-expect(sql).toContain("is_active_admin");
-expect(sql).toContain("revoke all");
-```
+- [ ] **Step 2: Run the SQL test before applying migration 023 and confirm failure**
 
-In the SQL test, construct batches for an operator and an admin and assert non-admin approval raises `admin_required`.
+Run `supabase/tests/legacy_master_detail_import.test.sql` through the isolated project SQL test runner before applying migration 023.
 
-- [ ] **Step 2: Run the contract test and confirm failure**
-
-Run: `npm test -- tests/unit/db-security-fix-contract.test.ts`
-
-Expected: FAIL because migration 023 does not exist.
+Expected: FAIL because the candidate tables and RPCs do not exist.
 
 - [ ] **Step 3: Add batch hash and immutable candidate tables**
 
@@ -355,18 +342,20 @@ The SQL test must verify:
 - same completed SHA-256 is discoverable;
 - audit rows contain the admin actor.
 
-- [ ] **Step 8: Run SQL contract and application tests**
+- [ ] **Step 8: Run database and application tests**
 
-Run: `npm test -- tests/unit/db-security-fix-contract.test.ts`
+Apply migration 023 to the isolated Supabase project `habfnclspdaeshjrbqzn`, then run `supabase/tests/legacy_master_detail_import.test.sql` through the project SQL test runner.
 
-Expected: PASS.
+Expected: the runtime schema, privilege, authorization, transaction, relationship, and idempotency assertions all pass.
 
-At execution time, apply migration 023 to the isolated Supabase project `habfnclspdaeshjrbqzn`, then run `supabase/tests/legacy_master_detail_import.test.sql` through the project SQL test runner. Expected: transaction completes with all assertions passing.
+Run: `npm test`
+
+Expected: the existing application suite remains green.
 
 - [ ] **Step 9: Commit the database contract**
 
 ```bash
-git add supabase/migrations/023_legacy_master_detail_import.sql supabase/tests/legacy_master_detail_import.test.sql tests/unit/db-security-fix-contract.test.ts
+git add supabase/migrations/023_legacy_master_detail_import.sql supabase/tests/legacy_master_detail_import.test.sql
 git commit -m "feat: add atomic legacy master import transaction"
 ```
 
