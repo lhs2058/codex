@@ -36,5 +36,5 @@ export function parseQualityWorkbook(sheets: WorkbookSheet[], options: QualityOp
       }
     }
   }
-  return { kind: options.kind, rows, diagnostics };
+  return { kind: options.kind, rows, diagnostics, capacityEvidence: [] };
 }

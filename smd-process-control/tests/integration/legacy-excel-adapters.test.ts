@@ -115,7 +115,60 @@ describe("legacy Excel adapters", () => {
     expect(xray.diagnostics).toContainEqual(expect.objectContaining({ sourceRow: 5, code: "invalid-count" }));
   });
 
-  it("expands production A-E cells, retains actuals and downtime, and ignores CAPA as input", async () => {
+  it("keeps CAPA as ST evidence without adding it to detail quantities", () => {
+    const sheet = productionSheet(1, 2);
+    sheet.sheet = "01.7";
+    sheet.data[1]![2] = "BÁO CÁO SẢN LƯỢNG CÁC CÔNG ĐOẠN SMD THEO TIME NGÀY 01/07/2026";
+    const dataRow = sheet.data[5]!;
+    dataRow[3] = "DAY";
+    dataRow[4] = "AOI-1";
+    dataRow[5] = "MODEL-1";
+    [8, 13, 18, 23, 28].forEach((column) => { dataRow[column] = 120; });
+    dataRow[9] = 100;
+    [14, 19, 24, 29].forEach((column) => { dataRow[column] = null; });
+
+    const result = parseProductionWorkbook([sheet]);
+
+    expect(result.capacityEvidence).toEqual([
+      expect.objectContaining({
+        sourceSheet: "01.7",
+        sourceRow: 6,
+        productionDate: "2026-07-01",
+        shiftCode: "DAY",
+        timeSlotCode: "A",
+        modelCode: "MODEL-1",
+        lineCode: "AOI-1",
+        processCode: "AOI",
+        capacityQty: 120,
+      }),
+    ]);
+    expect(result.rows[0].dimensions.production).toEqual({ inputQty: 0, actualQty: 100 });
+  });
+
+  it("reports blank and zero CAPA as ST evidence warnings without rejecting production rows", () => {
+    const sheet = productionSheet(1, 2);
+    const dataRow = sheet.data[5]!;
+    dataRow[8] = 120;
+    dataRow[13] = null;
+    dataRow[18] = 0;
+    dataRow[9] = 100;
+    dataRow[14] = 90;
+    dataRow[19] = 80;
+    [24, 29].forEach((column) => { dataRow[column] = null; });
+
+    const result = parseProductionWorkbook([sheet]);
+
+    expect(result.rows).toHaveLength(3);
+    expect(result.capacityEvidence).toEqual([
+      expect.objectContaining({ timeSlotCode: "A", capacityQty: 120 }),
+    ]);
+    expect(result.diagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceSheet: "25.07", sourceRow: 6, code: "invalid-count", field: "capacityQty" }),
+    ]));
+    expect(result.diagnostics.filter(({ field }) => field === "capacityQty")).toHaveLength(2);
+  });
+
+  it("expands production A-E cells, retains actuals and downtime", async () => {
     const result = parseProductionWorkbook(await readFixture("production-sample.xlsx"));
     expect(result.rows).toHaveLength(35);
     expect(result.rows).toEqual(expect.arrayContaining([
@@ -175,6 +228,7 @@ describe("legacy Excel adapters", () => {
       kind: "production",
       rows: [],
       diagnostics: [expect.objectContaining({ sourceSheet: "25.07", code: "missing-required-value", field: "headers" })],
+      capacityEvidence: [],
     });
   });
 

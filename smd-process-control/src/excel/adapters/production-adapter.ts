@@ -10,6 +10,7 @@ const folded = (value: unknown) => text(value).normalize("NFD").replace(/[\u0300
 export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
   const rows: ImportParseResult["rows"] = [];
   const diagnostics: ImportParseResult["diagnostics"] = [];
+  const capacityEvidence: ImportParseResult["capacityEvidence"] = [];
   const candidates = sheets
     .filter((value) => /^\d{2}\.\d{1,2}$/.test(value.sheet))
     .map((sheet) => ({ sheet, layout: findProductionGroupedLayout(sheet) }));
@@ -59,10 +60,11 @@ export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseRes
         try { downtimeMinutes = downtime == null ? 0 : normalizeQuantity(downtime, "downtimeMinutes"); } catch (error) { diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "invalid-count", message: String(error), field: "downtimeMinutes" }); continue; }
         const lineCode = process === "ICT" ? "ICT-1" : /router may 2/i.test(folded(lineText)) ? "ROUTER-2" : normalizeLineName(line);
         const missingLegacyReason = downtimeMinutes > 0;
+        const productionDate = `${date[3]}-${sheetDate![2].padStart(2, "0")}-${sheetDate![1]}`;
         rows.push(productionOnlyRow({
           sourceSheet: sheet.sheet,
           sourceRow: i + 1,
-          productionDate: `${date[3]}-${sheetDate![2].padStart(2, "0")}-${sheetDate![1]}`,
+          productionDate,
           shiftCode: inheritedShift,
           timeSlotCode: slots[j],
           lineCode,
@@ -76,8 +78,28 @@ export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseRes
           downtimeReasonCode: missingLegacyReason ? "LEGACY_UNSPECIFIED" : null,
           note: typeof note === "string" ? note : "",
         }, missingLegacyReason ? ["legacy-downtime-reason-unspecified"] : []));
+        try {
+          const capacityQty = normalizeQuantity(row[column.capacityColumn], "capacityQty");
+          if (capacityQty > 0) {
+            capacityEvidence.push({
+              sourceSheet: sheet.sheet,
+              sourceRow: i + 1,
+              productionDate,
+              shiftCode: inheritedShift,
+              timeSlotCode: slots[j],
+              modelCode: text(model),
+              lineCode,
+              processCode: process,
+              capacityQty,
+            });
+          } else {
+            diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "invalid-count", message: "Invalid capacityQty", field: "capacityQty" });
+          }
+        } catch (error) {
+          diagnostics.push({ sourceSheet: sheet.sheet, sourceRow: i + 1, code: "invalid-count", message: String(error), field: "capacityQty" });
+        }
       }
     }
   }
-  return { kind: "production", rows, diagnostics };
+  return { kind: "production", rows, diagnostics, capacityEvidence };
 }

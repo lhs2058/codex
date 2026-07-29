@@ -157,5 +157,5 @@ export function parseHeaderQualityWorkbook(
     }
   }
 
-  return matchedLayouts > 0 ? { kind: options.kind, rows, diagnostics } : null;
+  return matchedLayouts > 0 ? { kind: options.kind, rows, diagnostics, capacityEvidence: [] } : null;
 }

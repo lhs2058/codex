@@ -37,10 +37,23 @@ export interface NormalizedImportRow extends LegacyNormalizedImportRow {
   defects: NormalizedDefectRow[];
 }
 
+export interface CapacityEvidence {
+  sourceSheet: string;
+  sourceRow: number;
+  productionDate: string;
+  shiftCode: string;
+  timeSlotCode: "A" | "B" | "C" | "D" | "E";
+  modelCode: string;
+  lineCode: string;
+  processCode: LegacyNormalizedImportRow["processCode"];
+  capacityQty: number;
+}
+
 export interface ImportParseResult {
   kind: WorkbookKind;
   rows: NormalizedImportRow[];
   diagnostics: ImportDiagnostic[];
+  capacityEvidence: CapacityEvidence[];
 }
 
 export interface StagedUploadPayloadV2 {

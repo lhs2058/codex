@@ -3,7 +3,7 @@ import type { WorkbookSheet } from "./contracts";
 const plain = (value: unknown) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/đ/g, "d").trim();
 const label = (value: unknown) => plain(value).replace(/[^\p{L}\p{N}]+/gu, " ").replace(/\s+/g, " ").trim();
 
-export type ProductionGroupedLayout = { titleRow: number; groupRow: number; timeRow: number; subheaderRow: number; dataStartRow: number; shiftColumn: number | null; lineColumn: number; modelColumn: number; slots: Array<{ actualColumn: number; downtimeColumn: number; noteColumn: number }> };
+export type ProductionGroupedLayout = { titleRow: number; groupRow: number; timeRow: number; subheaderRow: number; dataStartRow: number; shiftColumn: number | null; lineColumn: number; modelColumn: number; slots: Array<{ capacityColumn: number; actualColumn: number; downtimeColumn: number; noteColumn: number }> };
 
 export function findProductionGroupedLayout(sheet: WorkbookSheet): ProductionGroupedLayout | null {
   if (!/^\d{2}\.\d{1,2}$/.test(sheet.sheet)) return null;
@@ -26,9 +26,11 @@ export function findProductionGroupedLayout(sheet: WorkbookSheet): ProductionGro
     const row = sheet.data[subheaderRow] ?? [];
     const timeHeaders = sheet.data[timeRow] ?? [];
     const inSlot = (_cell: unknown, column: number) => column >= start && column < start + 5;
+    const capacityColumn = row.findIndex((cell, column) => inSlot(cell, column) && label(cell) === "capa");
     const downtimeColumn = row.findIndex((cell, column) => inSlot(cell, column) && /dung\s+may/.test(plain(cell)));
     const noteColumn = row.findIndex((cell, column) => inSlot(cell, column) && /ghi chu/.test(plain(cell)));
     return {
+      capacityColumn,
       actualColumn: row.findIndex((cell, column) => inSlot(cell, column) && /san luong thuc te/.test(plain(cell))),
       downtimeColumn: downtimeColumn >= 0
         ? downtimeColumn
