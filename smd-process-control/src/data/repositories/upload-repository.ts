@@ -244,7 +244,7 @@ function defaultOptions(client: UploadRepositoryClient): UploadRepositoryOptions
     createId: () => crypto.randomUUID(),
     readWorkbook: readWorkbookSheets,
     parseWorkbook: parseDetectedWorkbook,
-    listMasterData: () => masterRepository.listMasterData(),
+    listMasterData: () => masterRepository.listImportMasterData(),
     async prefetchExisting(inputs) {
       const unique = [...new Map(inputs.map((input) => [
         `${existingKey(input)}|${input.includesQuality}`,
@@ -764,12 +764,18 @@ export function createUploadRepository(
         effectiveFrom,
         effectiveTo,
       }) => ({ key, approved, approvedSecondsPerUnit, effectiveFrom, effectiveTo }));
-      const result = await client.rpc("commit_upload_batch_with_masters", {
-        p_batch_id: batchId,
-        p_replace_conflicts: replaceConflicts,
-        p_master_approvals: masterApprovals,
-        p_standard_time_approvals: standardTimeApprovals,
-      });
+      const hasMasterReview = masterApprovals.length > 0 || standardTimeApprovals.length > 0;
+      const result = hasMasterReview
+        ? await client.rpc("commit_upload_batch_with_masters", {
+            p_batch_id: batchId,
+            p_replace_conflicts: replaceConflicts,
+            p_master_approvals: masterApprovals,
+            p_standard_time_approvals: standardTimeApprovals,
+          })
+        : await client.rpc("commit_upload_batch", {
+            p_batch_id: batchId,
+            p_replace_conflicts: replaceConflicts,
+          });
       const data = requestData(result, "upload_commit_failed");
       return {
         batchId: String(data.batch_id),

@@ -4,6 +4,7 @@ import type { AnalysisDataset, AnalysisFilters, MasterDataSnapshot } from "../..
 import { createAnalysisRepository } from "../../src/data/repositories/analysis-repository";
 import { createMasterDataRepository } from "../../src/data/repositories/master-data-repository";
 import { AnalysisPage } from "../../src/features/analysis/AnalysisPage";
+import { deriveLegacyCandidates } from "../../src/upload/legacy-master-candidates";
 
 const filters: AnalysisFilters = {
   from: "2026-07-27",
@@ -81,6 +82,65 @@ describe("analysis repository", () => {
       downtimeReasons: [expect.objectContaining({ name: "Legacy stop", active: false })],
       standardTimes: [expect.objectContaining({ secondsPerUnit: 60 })],
     }));
+  });
+
+  it("provides an all-status import snapshot without changing the active-only selector contract", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        models: [{ id: "model-inactive", code: "MODEL-X", name: "Retired model", is_active: false, version: 3 }],
+        processes: [{ id: "process-aoi", code: "AOI", name: "AOI", is_active: true, version: 1 }],
+        lines: [{ id: "line-1", code: "LINE-1", name: "Line 1", is_active: true, version: 1 }],
+        shifts: [{ id: "shift-day", code: "DAY", name: "Day", is_active: true, version: 1 }],
+        time_slots: [{ id: "slot-a", shift_id: "shift-day", code: "A", starts_at: "07:30", ends_at: "09:30", end_day_offset: 0, sequence: 1, is_active: true, version: 1 }],
+        downtime_reasons: [],
+        standard_times: [],
+      },
+      error: null,
+    });
+    const client = { rpc, from: vi.fn(() => { throw new Error("import_snapshot_must_not_query_active_tables"); }) };
+
+    const result = await createMasterDataRepository(client as any).listImportMasterData();
+
+    expect(rpc).toHaveBeenCalledWith("list_historical_master_data");
+    expect(result.models).toEqual([
+      expect.objectContaining({ code: "MODEL-X", name: "Retired model", active: false }),
+    ]);
+    const derived = deriveLegacyCandidates({
+      kind: "production",
+      rows: [{
+        sourceSheet: "Production",
+        sourceRow: 2,
+        productionDate: "2026-07-29",
+        shiftCode: "DAY",
+        timeSlotCode: "A",
+        lineCode: "LINE-1",
+        modelCode: "MODEL-X",
+        processCode: "AOI",
+        inputQty: 10,
+        actualQty: 9,
+        okQty: 0,
+        ngQty: 0,
+        downtimeMinutes: 0,
+        downtimeReasonCode: null,
+        note: "",
+        dimensions: { production: { inputQty: 10, actualQty: 9 }, quality: null },
+        warnings: [],
+        defects: [],
+      }],
+      diagnostics: [],
+      capacityEvidence: [],
+      stWarnings: [],
+    }, result);
+    expect(derived.masterCandidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entity: "model",
+        code: "MODEL-X",
+        status: "conflict",
+        conflictReason: "inactive",
+        currentName: "Retired model",
+        resolvable: false,
+      }),
+    ]));
   });
 
   it("keeps the normal master snapshot on active-only table reads", async () => {

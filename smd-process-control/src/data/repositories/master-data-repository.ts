@@ -149,6 +149,9 @@ export interface MasterDataRepository {
 export interface HistoricalMasterDataRepository {
   listHistoricalMasterData(): Promise<MasterDataSnapshot>;
 }
+export interface ImportMasterDataRepository {
+  listImportMasterData(): Promise<MasterDataSnapshot>;
+}
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 function normalizeDate(value: string) {
@@ -331,7 +334,7 @@ async function rpcResult<T>(client: MasterDataClient, name: string, args?: Recor
   return rows(result as { data: T; error: { message?: string; code?: string } | null });
 }
 
-export function createMasterDataRepository(client: MasterDataClient = getSupabaseClient() as unknown as MasterDataClient): MasterDataRepository & HistoricalMasterDataRepository {
+export function createMasterDataRepository(client: MasterDataClient = getSupabaseClient() as unknown as MasterDataClient): MasterDataRepository & HistoricalMasterDataRepository & ImportMasterDataRepository {
   const loadActiveSnapshot = async (): Promise<MasterDataSnapshot> => {
     const [models, processes, lines, shifts, timeSlots, downtimeReasons, standardTimes] = await Promise.all([
       active(client.from("models").select("id,code,name,is_active,version")).order("code"),
@@ -357,6 +360,9 @@ export function createMasterDataRepository(client: MasterDataClient = getSupabas
   };
   return {
     listMasterData: loadActiveSnapshot,
+    async listImportMasterData() {
+      return mapSnapshot(await rpcResult<HistoricalMasterDataPayload>(client, "list_historical_master_data"));
+    },
     async listHistoricalMasterData() {
       return mapSnapshot(await rpcResult<HistoricalMasterDataPayload>(client, "list_historical_master_data"));
     },

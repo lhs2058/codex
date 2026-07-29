@@ -905,7 +905,30 @@ describe("upload repository", () => {
     expect(from).not.toHaveBeenCalled();
   });
 
-  it("commits exclusively through the atomic server RPC and maps its result", async () => {
+  it("routes existing-only operator commits through the non-master RPC boundary", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: {
+      batch_id: "batch-operator", status: "committed", inserted: 2, replaced: 0,
+    }, error: null });
+    const repository = createUploadRepository({ rpc } as unknown as UploadRepositoryClient);
+
+    await expect(repository.commitUpload("batch-operator", false, {
+      masterCandidates: [],
+      standardTimeCandidates: [],
+    })).resolves.toEqual({
+      batchId: "batch-operator",
+      insertedCount: 2,
+      replacedCount: 0,
+      skippedCount: 0,
+      masterInsertedCount: 0,
+      standardTimeInsertedCount: 0,
+    });
+    expect(rpc).toHaveBeenCalledWith("commit_upload_batch", {
+      p_batch_id: "batch-operator",
+      p_replace_conflicts: false,
+    });
+  });
+
+  it("routes candidate approvals through the atomic master-aware RPC and maps its result", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: {
       batch_id: "batch-1", status: "completed", inserted: 2, replaced: 1, skipped: 3, masters_inserted: 4, standard_times_inserted: 5,
     }, error: null });
