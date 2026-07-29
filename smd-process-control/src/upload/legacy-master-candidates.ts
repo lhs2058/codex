@@ -80,6 +80,7 @@ function standardMasterCandidate(
   const existing = records.find((record) => record.code === code);
   const active = existing?.active === true;
   const exact = active && existing?.name === code;
+  const conflictReason = !existing ? null : active ? "name-mismatch" : "inactive";
   return {
     key: `${entity}|${code}`,
     entity,
@@ -88,6 +89,9 @@ function standardMasterCandidate(
     proposedName: code,
     status: exact ? "existing" : existing ? "conflict" : "new",
     approved: exact,
+    conflictReason: exact ? null : conflictReason,
+    currentName: existing?.name ?? null,
+    resolvable: !existing || exact || active,
     startsAt: null,
     endsAt: null,
     endDayOffset: null,
@@ -112,6 +116,13 @@ function timeSlotMasterCandidate(
     && existing.endsAt === definition.endsAt
     && existing.endDayOffset === definition.endDayOffset
     && existing.sequence === definition.sequence;
+  const conflictReason = !existing
+    ? null
+    : existing.active === false
+      ? "inactive"
+      : exact
+        ? null
+        : "slot-mismatch";
   return {
     key: `time_slot|${shiftCode}|${slotCode}`,
     entity: "time_slot",
@@ -120,11 +131,20 @@ function timeSlotMasterCandidate(
     proposedName: slotCode,
     status: exact ? "existing" : existing ? "conflict" : "new",
     approved: exact,
+    conflictReason,
+    currentName: existing?.code ?? null,
+    resolvable: !existing || exact,
     startsAt: definition.startsAt,
     endsAt: definition.endsAt,
     endDayOffset: definition.endDayOffset,
     sequence: definition.sequence,
-    messages: exact ? [] : existing ? ["Existing time slot configuration differs"] : [],
+    messages: exact
+      ? []
+      : existing
+        ? [existing.active === false
+          ? "Existing time slot is inactive"
+          : "Existing time slot configuration differs"]
+        : [],
     sources: [source],
   };
 }

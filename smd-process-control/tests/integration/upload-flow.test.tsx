@@ -13,6 +13,7 @@ import {
 } from "../../src/data/repositories/upload-repository";
 import { UploadPage } from "../../src/features/upload/UploadPage";
 import { UploadReviewTable } from "../../src/features/upload/UploadReviewTable";
+import { UploadStandardTimeReview } from "../../src/features/upload/UploadStandardTimeReview";
 
 const masterData: MasterDataSnapshot = {
   models: [{ id: "m", code: "MODEL-A", name: "Model A", active: true, version: 1 }],
@@ -69,6 +70,9 @@ const masterCandidate = {
   proposedName: "MODEL-1",
   status: "new" as const,
   approved: false,
+  conflictReason: null,
+  currentName: null,
+  resolvable: true,
   startsAt: null,
   endsAt: null,
   endDayOffset: null,
@@ -172,6 +176,7 @@ describe("upload repository", () => {
   it("stores the original first, then persists the batch and normalized rows", async () => {
     const events: string[] = [];
     const inserted: Record<string, unknown> = {};
+    const rpc = candidateRpc(events);
     const client = {
       auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }) },
       storage: { from: vi.fn().mockReturnValue({ upload: vi.fn().mockImplementation(async () => { events.push("storage"); return { data: { path: "user-1/upload-1-production.xlsx" }, error: null }; }) }) },
@@ -184,7 +189,7 @@ describe("upload repository", () => {
             : Promise.resolve({ data: null, error: null });
         },
       })),
-      rpc: candidateRpc(events),
+      rpc,
     } as unknown as UploadRepositoryClient;
     const parseResult: ImportParseResult = { kind: "standard", rows: [parsedRow], diagnostics: [], capacityEvidence: [], stWarnings: [] };
     const repository = createUploadRepository(client, {
@@ -233,6 +238,22 @@ describe("upload repository", () => {
         warnings: [],
       },
     })]);
+    expect(rpc).toHaveBeenCalledWith("stage_upload_candidates", expect.objectContaining({
+      p_master_candidates: expect.arrayContaining([
+        expect.objectContaining({
+          key: "model|MODEL-A",
+          conflictReason: "name-mismatch",
+          currentName: "Model A",
+          resolvable: true,
+        }),
+        expect.objectContaining({
+          key: "time_slot|DAY|A",
+          conflictReason: "slot-mismatch",
+          currentName: "A",
+          resolvable: false,
+        }),
+      ]),
+    }));
   });
 
   it("returns a completed batch by SHA-256 without uploading or creating another batch", async () => {
@@ -1171,5 +1192,214 @@ describe("UploadPage", () => {
     expect(loadDetailPage).toHaveBeenNthCalledWith(2, "batch-1", 1, "error");
     expect(screen.getByText("Page 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Approved name MODEL-1")).toHaveValue("Camera Main");
+  });
+
+  it("allows an operator to commit when every candidate is already resolved as existing", async () => {
+    const candidateReview = legacyReview({
+      masterCandidates: [{
+        ...masterCandidate,
+        status: "existing",
+        approved: true,
+        currentName: "MODEL-1",
+      }],
+      standardTimeCandidates: [{
+        ...standardTimeCandidate,
+        status: "existing",
+        approved: true,
+        proposedSecondsPerUnit: 10.5,
+        approvedSecondsPerUnit: 10.5,
+        messages: [],
+      }],
+    });
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(candidateReview),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn().mockResolvedValue({
+        batchId: "batch-1",
+        insertedCount: 1,
+        replacedCount: 0,
+      }),
+    };
+
+    render(<UploadPage repository={repository} role="operator" />);
+    fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
+
+    const commit = await screen.findByRole("button", { name: "Commit upload" });
+    expect(commit).toBeEnabled();
+    fireEvent.click(commit);
+    await waitFor(() => expect(repository.commitUpload).toHaveBeenCalledWith(
+      "batch-1",
+      false,
+      { masterCandidates: [], standardTimeCandidates: [] },
+    ));
+  });
+
+  it("discards a stale detail page after another workbook is staged", async () => {
+    let resolveOldPage!: (page: {
+      page: number;
+      pageSize: 200;
+      total: number;
+      rows: UploadReview["rows"];
+      diagnostics: UploadReview["diagnostics"];
+    }) => void;
+    const oldPage = new Promise<Parameters<typeof resolveOldPage>[0]>((resolve) => {
+      resolveOldPage = resolve;
+    });
+    const secondReview = legacyReview({
+      batchId: "batch-2",
+      sourceFileName: "second.xlsx",
+      detailTotal: 1,
+      rows: [{ ...parsedRow, sourceRow: 501, status: "new", messages: [] }],
+    });
+    const repository = {
+      stageUpload: vi.fn()
+        .mockResolvedValueOnce(legacyReview({ detailTotal: 401 }))
+        .mockResolvedValueOnce(secondReview),
+      loadDetailPage: vi.fn().mockReturnValue(oldPage),
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+    const input = screen.getByLabelText("Workbook");
+    fireEvent.change(input, { target: { files: [file()] } });
+    await screen.findByText("legacy-production.xlsx");
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() => expect(repository.loadDetailPage).toHaveBeenCalledWith("batch-1", 2, undefined));
+
+    fireEvent.change(input, { target: { files: [new File(["second"], "second.xlsx")] } });
+    await screen.findByText("second.xlsx");
+    resolveOldPage({
+      page: 2,
+      pageSize: 200,
+      total: 401,
+      rows: [{ ...parsedRow, sourceRow: 203, status: "new", messages: [] }],
+      diagnostics: [],
+    });
+
+    await waitFor(() => expect(screen.queryByText("203")).not.toBeInTheDocument());
+    expect(screen.getByText("501")).toBeInTheDocument();
+    expect(screen.getByText("Page 1")).toBeInTheDocument();
+  });
+
+  it("prefills reusable conflicts with the canonical name and blocks immutable conflicts", async () => {
+    const canonicalConflict = {
+      ...masterCandidate,
+      status: "conflict" as const,
+      conflictReason: "name-mismatch" as const,
+      currentName: "Canonical Camera",
+      resolvable: true,
+      messages: ["Existing model name differs"],
+    };
+    const inactiveConflict = {
+      ...masterCandidate,
+      key: "line|LINE-1",
+      entity: "line" as const,
+      code: "LINE-1",
+      proposedName: "LINE-1",
+      status: "conflict" as const,
+      conflictReason: "inactive" as const,
+      currentName: "Inactive Line",
+      resolvable: false,
+      messages: ["Existing line is inactive"],
+    };
+    const slotConflict = {
+      ...masterCandidate,
+      key: "time_slot|DAY|A",
+      entity: "time_slot" as const,
+      code: "A",
+      parentCode: "DAY",
+      proposedName: "A",
+      status: "conflict" as const,
+      conflictReason: "slot-mismatch" as const,
+      currentName: "A",
+      resolvable: false,
+      messages: ["Existing time slot configuration differs"],
+    };
+    const candidateReview = legacyReview({
+      masterCandidates: [canonicalConflict, inactiveConflict, slotConflict],
+      masterCandidateCount: 3,
+      standardTimeCandidates: [],
+      standardTimeCandidateCount: 0,
+    });
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(candidateReview),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+    fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
+
+    expect(await screen.findByLabelText("Approved name MODEL-1")).toHaveValue("Canonical Camera");
+    expect(screen.getByText("Canonical Camera")).toBeInTheDocument();
+    expect(screen.getByText("name-mismatch")).toBeInTheDocument();
+    expect(screen.getByLabelText("Approved name LINE-1")).toBeDisabled();
+    expect(screen.getByLabelText("Approve line LINE-1")).toBeDisabled();
+    expect(screen.getByLabelText("Approved name A")).toBeDisabled();
+    expect(screen.getByLabelText("Approve time_slot A")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Commit upload" })).toBeDisabled();
+  });
+
+  it("resolves a reusable name conflict only with the exact canonical name", async () => {
+    const candidateReview = legacyReview({
+      masterCandidates: [{
+        ...masterCandidate,
+        status: "conflict",
+        conflictReason: "name-mismatch",
+        currentName: "Canonical Camera",
+        resolvable: true,
+        messages: ["Existing model name differs"],
+      }],
+      standardTimeCandidates: [],
+      standardTimeCandidateCount: 0,
+    });
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(candidateReview),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+    fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
+
+    const name = await screen.findByLabelText("Approved name MODEL-1");
+    fireEvent.click(screen.getByLabelText("Approve model MODEL-1"));
+    expect(screen.getByRole("button", { name: "Commit upload" })).toBeEnabled();
+
+    fireEvent.change(name, { target: { value: "Changed Name" } });
+    expect(screen.getByRole("button", { name: "Commit upload" })).toBeDisabled();
+
+    fireEvent.change(name, { target: { value: "Canonical Camera" } });
+    expect(screen.getByRole("button", { name: "Commit upload" })).toBeEnabled();
+  });
+});
+
+describe("UploadStandardTimeReview", () => {
+  it("uses stable distinct evidence rows for multiple slots from one source row", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const candidate = {
+      ...standardTimeCandidate,
+      observations: [
+        standardTimeCandidate.observations[0]!,
+        {
+          ...standardTimeCandidate.observations[0]!,
+          timeSlotCode: "B",
+          plannedSeconds: 12600,
+          secondsPerUnit: 17.5,
+        },
+      ],
+    };
+
+    render(<UploadStandardTimeReview
+      candidates={[candidate]}
+      role="admin"
+      approvals={[]}
+      onChange={vi.fn()}
+    />);
+
+    expect(screen.getByLabelText("Use 10 seconds from Production row 8")).toBeInTheDocument();
+    expect(screen.getByLabelText("Use 17.5 seconds from Production row 8")).toBeInTheDocument();
+    expect(consoleError.mock.calls.some(([message]) => String(message).includes("same key"))).toBe(false);
+    consoleError.mockRestore();
   });
 });

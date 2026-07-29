@@ -21,7 +21,7 @@ export function UploadMasterReview(props: {
     props.approvals.find((approval) => approval.key === candidate.key) ?? {
       key: candidate.key,
       approved: candidate.approved,
-      approvedName: candidate.proposedName,
+      approvedName: candidate.currentName ?? candidate.proposedName,
     };
 
   const update = (
@@ -46,8 +46,11 @@ export function UploadMasterReview(props: {
             <th>Code</th>
             <th>Parent shift</th>
             <th>Proposed name</th>
+            <th>Current canonical name</th>
             <th>Approved name</th>
             <th>Status</th>
+            <th>Conflict reason</th>
+            <th>Resolution</th>
             <th>Messages</th>
             <th>Sources</th>
             <th>Approve</th>
@@ -57,12 +60,16 @@ export function UploadMasterReview(props: {
           {props.candidates.map((candidate) => {
             const approval = approvalFor(candidate);
             const editable = props.role === "admin"
-              && (candidate.status === "new" || candidate.status === "conflict");
+              && (
+                candidate.status === "new"
+                || (candidate.status === "conflict" && candidate.resolvable)
+              );
             return <tr key={candidate.key}>
               <td>{candidate.entity}</td>
               <td>{candidate.code}</td>
               <td>{candidate.parentCode ?? "—"}</td>
               <td>{candidate.proposedName}</td>
+              <td>{candidate.currentName ?? "—"}</td>
               <td>
                 <label>
                   <span className="sr-only">Approved name {candidate.code}</span>
@@ -76,6 +83,8 @@ export function UploadMasterReview(props: {
                 </label>
               </td>
               <td>{statusLabel(candidate.status)}</td>
+              <td>{candidate.conflictReason ?? "—"}</td>
+              <td>{candidate.resolvable ? "Resolvable" : "Blocked"}</td>
               <td>{candidate.messages.join("; ") || "—"}</td>
               <td>{candidate.sources.map((source) => `${source.sheet} ${source.row}`).join(", ")}</td>
               <td>

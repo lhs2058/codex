@@ -57,7 +57,7 @@ function initialApproval(review: UploadReview): UploadApproval {
       .map((candidate) => ({
         key: candidate.key,
         approved: candidate.approved,
-        approvedName: candidate.proposedName,
+        approvedName: candidate.currentName ?? candidate.proposedName,
       })),
     standardTimeCandidates: review.standardTimeCandidates
       .filter((candidate) => candidate.status === "new" || candidate.status === "conflict")
@@ -79,10 +79,15 @@ function candidatesResolved(review: UploadReview, approval: UploadApproval): boo
 
   const mastersResolved = review.masterCandidates.every((candidate) => {
     if (candidate.status === "existing") return true;
+    if (!candidate.resolvable) return false;
     const selected = approval.masterCandidates.find((item) => item.key === candidate.key);
     return candidate.status !== "error"
       && selected?.approved === true
-      && selected.approvedName.trim().length > 0;
+      && selected.approvedName.trim().length > 0
+      && (
+        candidate.conflictReason !== "name-mismatch"
+        || selected.approvedName === candidate.currentName
+      );
   });
   const standardTimesResolved = review.standardTimeCandidates.every((candidate) => {
     if (candidate.status === "existing") return true;
@@ -94,6 +99,15 @@ function candidatesResolved(review: UploadReview, approval: UploadApproval): boo
       && selected.approvedSecondsPerUnit > 0;
   });
   return mastersResolved && standardTimesResolved;
+}
+
+function requiresAdminApproval(review: UploadReview): boolean {
+  return isLegacyReview(review) && (
+    review.masterCandidates.some((candidate) =>
+      candidate.status === "new" || candidate.status === "conflict")
+    || review.standardTimeCandidates.some((candidate) =>
+      candidate.status === "new" || candidate.status === "conflict")
+  );
 }
 
 export function UploadPage({
@@ -112,6 +126,7 @@ export function UploadPage({
   const currentRole = role ?? auth.profile?.role ?? "viewer";
   const repositoryRef = useRef(repository ?? uploadRepository()).current;
   const masterRepositoryRef = useRef(masterDataRepository).current;
+  const requestGenerationRef = useRef(0);
   const [review, setReview] = useState<UploadReview | null>(null);
   const [approval, setApproval] = useState<UploadApproval>({
     masterCandidates: [],
@@ -126,6 +141,8 @@ export function UploadPage({
 
   const stage = async (file: File | undefined) => {
     if (!file || busy) return;
+    requestGenerationRef.current += 1;
+    setPageBusy(false);
     setBusy("stage");
     setError("");
     setCommitMessage("");
@@ -146,16 +163,19 @@ export function UploadPage({
 
   const loadPage = async (page: number, status = detailStatus) => {
     if (!review || pageBusy) return;
+    const requestedBatchId = review.batchId;
+    const requestedGeneration = requestGenerationRef.current;
     setPageBusy(true);
     setError("");
     try {
       const detail = await repositoryRef.loadDetailPage(
-        review.batchId,
+        requestedBatchId,
         page,
         status || undefined,
       );
+      if (requestGenerationRef.current !== requestedGeneration) return;
       setReview((current) => {
-        if (!current) return current;
+        if (!current || current.batchId !== requestedBatchId) return current;
         return {
           ...current,
           rows: detail.rows,
@@ -166,9 +186,11 @@ export function UploadPage({
         };
       });
     } catch (pageError) {
-      setError(pageError instanceof Error ? pageError.message : t("upload.stagingFailed"));
+      if (requestGenerationRef.current === requestedGeneration) {
+        setError(pageError instanceof Error ? pageError.message : t("upload.stagingFailed"));
+      }
     } finally {
-      setPageBusy(false);
+      if (requestGenerationRef.current === requestedGeneration) setPageBusy(false);
     }
   };
 
@@ -208,14 +230,13 @@ export function UploadPage({
   };
 
   const legacyReview = review && isLegacyReview(review) ? review : null;
-  const hasCandidates = legacyReview !== null
-    && (legacyReview.masterCandidates.length > 0 || legacyReview.standardTimeCandidates.length > 0);
+  const adminApprovalRequired = review ? requiresAdminApproval(review) : false;
   const commitDisabled = !review
     || busy !== null
     || pageBusy
     || review.errorCount > 0
     || !candidatesResolved(review, approval)
-    || (hasCandidates && currentRole !== "admin")
+    || (adminApprovalRequired && currentRole !== "admin")
     || (review.conflictCount > 0 && !(currentRole === "admin" && replaceConflicts))
     || (isLegacyReview(review) && review.duplicateCompletedBatch === true);
   const detailPage = legacyReview?.detailPage ?? 1;

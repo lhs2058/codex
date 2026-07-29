@@ -82,7 +82,7 @@ describe("legacy master candidate derivation", () => {
     expect(deriveLegacyCandidates(withReason, emptyMaster()).masterCandidates.some((candidate) => candidate.code === "LEGACY_UNSPECIFIED")).toBe(false);
   });
 
-  it("keeps matching active master records unchanged and flags a code whose name differs", () => {
+  it("keeps matching active master records unchanged and exposes the canonical name for a reusable name conflict", () => {
     const master = emptyMaster();
     master.models = [{ id: "model-1", code: "MODEL-1", name: "MODEL-1", active: true, version: 1 }];
     master.lines = [{ id: "line-1", code: "AOI-1", name: "Renamed AOI", active: true }];
@@ -90,8 +90,61 @@ describe("legacy master candidate derivation", () => {
     const candidates = deriveLegacyCandidates(parsed({ capacityEvidence: [] }), master).masterCandidates;
 
     expect(candidates).toEqual(expect.arrayContaining([
-      expect.objectContaining({ entity: "model", code: "MODEL-1", status: "existing", approved: true }),
-      expect.objectContaining({ entity: "line", code: "AOI-1", status: "conflict", approved: false }),
+      expect.objectContaining({
+        entity: "model",
+        code: "MODEL-1",
+        status: "existing",
+        approved: true,
+        conflictReason: null,
+        currentName: "MODEL-1",
+        resolvable: true,
+      }),
+      expect.objectContaining({
+        entity: "line",
+        code: "AOI-1",
+        status: "conflict",
+        approved: false,
+        conflictReason: "name-mismatch",
+        currentName: "Renamed AOI",
+        resolvable: true,
+      }),
+    ]));
+  });
+
+  it("marks inactive masters and mismatched existing slots as immutable conflicts", () => {
+    const master = emptyMaster();
+    master.models = [{ id: "model-1", code: "MODEL-1", name: "Camera", active: false, version: 1 }];
+    master.shifts = [{ id: "shift-day", code: "DAY", name: "DAY", active: true }];
+    master.timeSlots = [{
+      id: "slot-a",
+      shiftId: "shift-day",
+      code: "A",
+      startsAt: "08:00",
+      endsAt: "10:00",
+      endDayOffset: 0,
+      sequence: 1,
+      active: true,
+    }];
+
+    const candidates = deriveLegacyCandidates(parsed({ capacityEvidence: [] }), master).masterCandidates;
+
+    expect(candidates).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        entity: "model",
+        code: "MODEL-1",
+        status: "conflict",
+        conflictReason: "inactive",
+        currentName: "Camera",
+        resolvable: false,
+      }),
+      expect.objectContaining({
+        entity: "time_slot",
+        code: "A",
+        status: "conflict",
+        conflictReason: "slot-mismatch",
+        currentName: "A",
+        resolvable: false,
+      }),
     ]));
   });
 

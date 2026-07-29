@@ -146,6 +146,7 @@ export interface ImportParseResult {
 
 export type UploadCandidateStatus = "existing" | "new" | "conflict" | "error";
 export type UploadMasterEntity = "model" | "line" | "shift" | "time_slot" | "downtime_reason";
+export type UploadMasterConflictReason = "name-mismatch" | "inactive" | "slot-mismatch" | null;
 export interface UploadSourceRef { sheet: string; row: number }
 export interface UploadMasterCandidate {
   key: string;
@@ -155,6 +156,9 @@ export interface UploadMasterCandidate {
   proposedName: string;
   status: UploadCandidateStatus;
   approved: boolean;
+  conflictReason: UploadMasterConflictReason;
+  currentName: string | null;
+  resolvable: boolean;
   startsAt: string | null;
   endsAt: string | null;
   endDayOffset: 0 | 1 | null;

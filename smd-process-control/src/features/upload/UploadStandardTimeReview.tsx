@@ -103,7 +103,13 @@ export function UploadStandardTimeReview(props: {
                 </tr>
               </thead>
               <tbody>
-                {candidate.observations.map((observation) => <tr key={`${observation.sheet}-${observation.row}`}>
+                {candidate.observations.map((observation) => <tr key={[
+                  observation.sheet,
+                  observation.row,
+                  observation.productionDate,
+                  observation.shiftCode,
+                  observation.timeSlotCode,
+                ].join("|")}>
                   <td>
                     <input
                       aria-label={`Use ${observation.secondsPerUnit} seconds from ${observation.sheet} row ${observation.row}`}
