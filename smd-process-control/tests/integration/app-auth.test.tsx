@@ -126,6 +126,37 @@ describe("application authentication", () => {
     expect(screen.getByTestId("auth-state")).toHaveTextContent("ready:user-b:operator");
   });
 
+  it("keeps a ready session visible when Supabase repeats an auth event for the same user", async () => {
+    let listener: (_event: string, next: typeof session | null) => void = () => undefined;
+    const duplicateProfile = deferred<{ data: { role: "admin"; is_active: boolean }; error: null }>();
+    const single = vi.fn()
+      .mockResolvedValueOnce({ data: { role: "admin", is_active: true }, error: null })
+      .mockReturnValueOnce(duplicateProfile.promise);
+    const client: SessionAuthClient = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({ data: { session }, error: null }),
+        onAuthStateChange: vi.fn((callback) => {
+          listener = callback;
+          return { data: { subscription: { unsubscribe: vi.fn() } } };
+        }),
+        signOut: vi.fn(),
+      },
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({ single }),
+        }),
+      }),
+    };
+
+    render(<AuthProvider client={client}><StateProbe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("ready:user-1:admin"));
+
+    await act(async () => { listener("SIGNED_IN", session); });
+
+    expect(screen.getByTestId("auth-state")).toHaveTextContent("ready:user-1:admin");
+    expect(single).toHaveBeenCalledOnce();
+  });
+
   it("unsubscribes and ignores a profile result after unmount", async () => {
     const race = raceClient();
     const profile = deferred<{ data: { role: "admin"; is_active: boolean }; error: null }>();

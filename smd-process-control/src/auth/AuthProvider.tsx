@@ -25,6 +25,8 @@ const AuthContext = createContext<AuthState>({ status: "loading", session: null,
 export function AuthProvider({ client, children }: PropsWithChildren<{ client: SessionAuthClient }>) {
   const [state, setState] = useState<AuthState>({ status: "loading", session: null, profile: null });
   const generation = useRef(0);
+  const sessionUserId = useRef<string | null>(null);
+  const latestSession = useRef<Session | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -32,6 +34,8 @@ export function AuthProvider({ client, children }: PropsWithChildren<{ client: S
     const current = (token: number) => mounted && generation.current === token;
     const clearAndSignOut = (token: number) => {
       if (!current(token)) return;
+      sessionUserId.current = null;
+      latestSession.current = null;
       setState({ status: "ready", session: null, profile: null });
       void Promise.resolve().then(() => client.auth.signOut()).catch(() => undefined);
     };
@@ -47,7 +51,7 @@ export function AuthProvider({ client, children }: PropsWithChildren<{ client: S
         }
         setState({
           status: "ready",
-          session,
+          session: latestSession.current?.user.id === session.user.id ? latestSession.current : session,
           profile: {
             role: result.data.role,
             isActive: true,
@@ -62,15 +66,26 @@ export function AuthProvider({ client, children }: PropsWithChildren<{ client: S
     const beginSession = (session: Session | null, token: number) => {
       if (!current(token)) return;
       if (!session) {
+        sessionUserId.current = null;
+        latestSession.current = null;
         setState({ status: "ready", session: null, profile: null });
         return;
       }
+      sessionUserId.current = session.user.id;
+      latestSession.current = session;
       setState({ status: "loading", session: null, profile: null });
       resolveProfile(session, token);
     };
 
     const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return;
+      if (session && sessionUserId.current === session.user.id) {
+        latestSession.current = session;
+        setState((currentState) => currentState.status === "ready" && currentState.session?.user.id === session.user.id
+          ? { ...currentState, session }
+          : currentState);
+        return;
+      }
       const token = ++generation.current;
       beginSession(session, token);
     });
@@ -79,7 +94,13 @@ export function AuthProvider({ client, children }: PropsWithChildren<{ client: S
     }).catch(() => {
       if (current(initialToken)) beginSession(null, initialToken);
     });
-    return () => { mounted = false; generation.current += 1; subscription.unsubscribe(); };
+    return () => {
+      mounted = false;
+      generation.current += 1;
+      sessionUserId.current = null;
+      latestSession.current = null;
+      subscription.unsubscribe();
+    };
   }, [client]);
 
   const setLanguage = useCallback(async (language: Language) => {
