@@ -144,6 +144,57 @@ export interface ImportParseResult {
   diagnostics: ImportDiagnostic[];
 }
 
+export type UploadCandidateStatus = "existing" | "new" | "conflict" | "error";
+export type UploadMasterEntity = "model" | "line" | "shift" | "time_slot" | "downtime_reason";
+export interface UploadSourceRef { sheet: string; row: number }
+export interface UploadMasterCandidate {
+  key: string;
+  entity: UploadMasterEntity;
+  code: string;
+  parentCode: string | null;
+  proposedName: string;
+  status: UploadCandidateStatus;
+  approved: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+  endDayOffset: 0 | 1 | null;
+  sequence: number | null;
+  messages: string[];
+  sources: UploadSourceRef[];
+}
+export interface StandardTimeObservation extends UploadSourceRef {
+  productionDate: string;
+  shiftCode: string;
+  timeSlotCode: string;
+  capacityQty: number;
+  plannedSeconds: number;
+  secondsPerUnit: number;
+}
+export interface UploadStandardTimeCandidate {
+  key: string;
+  modelCode: string;
+  lineCode: string;
+  processCode: ProcessCode;
+  status: UploadCandidateStatus;
+  approved: boolean;
+  proposedSecondsPerUnit: number | null;
+  approvedSecondsPerUnit: number | null;
+  minimum: number;
+  median: number;
+  maximum: number;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  messages: string[];
+  observations: StandardTimeObservation[];
+}
+
+export interface CandidateDerivationResult {
+  masterCandidates: UploadMasterCandidate[];
+  standardTimeCandidates: UploadStandardTimeCandidate[];
+  diagnostics: ImportDiagnostic[];
+  stWarnings: ImportDiagnostic[];
+}
+
 export interface UploadReview {
   batchId: string;
   newCount: number;
@@ -152,6 +203,13 @@ export interface UploadReview {
   unknownMasterDataCount: number;
   rows: Array<NormalizedImportRow & { status: "new" | "conflict" | "error"; messages: string[] }>;
   diagnostics: Array<{ sourceSheet: string; sourceRow: number; messages: string[] }>;
+  sourceFileName?: string;
+  sourceSha256?: string;
+  workbookKind?: WorkbookKind;
+  masterCandidates?: UploadMasterCandidate[];
+  standardTimeCandidates?: UploadStandardTimeCandidate[];
+  detailTotal?: number;
+  detailPage?: number;
 }
 
 export interface UploadCommitResult {
