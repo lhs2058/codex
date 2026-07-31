@@ -71,6 +71,7 @@ const REQUIRED_ENVIRONMENT = [
   "E2E_ADMIN_PASSWORD",
   "E2E_VIEWER_PASSWORD",
   "E2E_DUPLICATE_WORKBOOK",
+  "E2E_LEGACY_WORKBOOK",
   "E2E_SEED_CONFIRM",
 ];
 
@@ -92,9 +93,16 @@ export function assertSeedEnvironment(environment, projectRoot = process.cwd()) 
     throw new Error("Refusing to seed anything except local Supabase at http://127.0.0.1:54321");
   }
   const workbookPath = path.resolve(projectRoot, environment.E2E_DUPLICATE_WORKBOOK);
+  const legacyWorkbookPath = path.resolve(projectRoot, environment.E2E_LEGACY_WORKBOOK);
   const fixtureRoot = path.resolve(projectRoot, ".e2e");
-  if (path.extname(workbookPath).toLowerCase() !== ".xlsx" || !workbookPath.startsWith(`${fixtureRoot}${path.sep}`)) {
-    throw new Error("E2E_DUPLICATE_WORKBOOK must be an .xlsx path inside the project .e2e directory");
+  if (
+    path.extname(workbookPath).toLowerCase() !== ".xlsx"
+    || !workbookPath.startsWith(`${fixtureRoot}${path.sep}`)
+    || path.extname(legacyWorkbookPath).toLowerCase() !== ".xlsx"
+    || !legacyWorkbookPath.startsWith(`${fixtureRoot}${path.sep}`)
+    || legacyWorkbookPath === workbookPath
+  ) {
+    throw new Error("E2E workbook paths must be distinct .xlsx paths inside the project .e2e directory");
   }
   return {
     supabaseUrl: target.toString().replace(/\/$/, ""),
@@ -105,6 +113,7 @@ export function assertSeedEnvironment(environment, projectRoot = process.cwd()) 
       viewer: environment.E2E_VIEWER_PASSWORD,
     },
     workbookPath,
+    legacyWorkbookPath,
   };
 }
 
@@ -144,6 +153,88 @@ export async function buildDuplicateWorkbookBuffer(productionDate) {
     { data: defects, sheet: "Defects" },
     { data: reference, sheet: "Reference" },
   ]).toBuffer();
+}
+
+export async function buildLegacyApprovalWorkbookBuffer(productionDate) {
+  datedSeedIds(productionDate);
+  const [year, month, day] = productionDate.split("-");
+  const pad = (values) => [
+    cell(""),
+    cell(""),
+    ...values.map((value) => cell(value ?? "", typeof value === "number" ? Number : String)),
+  ];
+  const groupedHeaders = [
+    null, null, null, null, null, null,
+    "Time A", null, null, null, null,
+    "Time B", null, null, null, null,
+    "Time C", null, null, null, null,
+    "Time D", null, null, null, null,
+    "Time E", null, null, null, null,
+  ];
+  const slotHeaders = [
+    null, null, null, null, null, null,
+    "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú",
+    "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú",
+    "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú",
+    "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú",
+    "CAPA", "Sản Lượng Thực Tế", "Tỷ Lệ", "Time dừng máy (p)", "Ghi chú",
+  ];
+  const detail = ({
+    shift,
+    line,
+    model,
+    slot,
+    capacity,
+    actual,
+    downtime = 0,
+    note = "",
+  }) => {
+    const values = Array(31).fill(null);
+    values[1] = shift;
+    values[2] = line;
+    values[3] = model;
+    const slotStart = 6 + slot * 5;
+    values[slotStart] = capacity;
+    values[slotStart + 1] = actual;
+    values[slotStart + 3] = downtime;
+    values[slotStart + 4] = note;
+    return pad(values);
+  };
+  const data = [
+    pad([`BÁO CÁO SẢN LƯỢNG CÁC CÔNG ĐOẠN SMD THEO TIME NGÀY ${day}/${month}/${year}`]),
+    pad(["Ngày", "Ca", "Line", "Model", null, null, "Sản Lượng Từng Time"]),
+    pad(groupedHeaders),
+    pad(slotHeaders),
+    detail({
+      shift: "DAY",
+      line: "E2E-LEGACY-LINE",
+      model: "E2E-LEGACY-MODEL",
+      slot: 0,
+      capacity: 720,
+      actual: 25,
+      downtime: 5,
+      note: "E2E legacy DAY/A evidence",
+    }),
+    detail({
+      shift: "NIGHT",
+      line: "E2E-LEGACY-LINE",
+      model: "E2E-LEGACY-MODEL",
+      slot: 1,
+      capacity: 1260,
+      actual: 30,
+      note: "E2E legacy NIGHT/B evidence",
+    }),
+    detail({
+      shift: "DAY",
+      line: "E2E-LEGACY-DUPLICATE-LINE",
+      model: "E2E-LEGACY-DUPLICATE-MODEL",
+      slot: 0,
+      capacity: null,
+      actual: 45,
+      note: "E2E deterministic replacement target",
+    }),
+  ];
+  return writeXlsxFile([{ data, sheet: `${day}.${month}` }]).toBuffer();
 }
 
 export function publicSeedManifest(productionDate, processId) {

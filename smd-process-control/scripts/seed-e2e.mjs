@@ -6,6 +6,7 @@ import {
   SEED_CONTRACT,
   assertSeedEnvironment,
   buildDuplicateWorkbookBuffer,
+  buildLegacyApprovalWorkbookBuffer,
   datedSeedIds,
   publicSeedManifest,
 } from "./e2e-seed-contract.mjs";
@@ -15,6 +16,26 @@ const configuration = assertSeedEnvironment(process.env, projectRoot);
 const client = createClient(configuration.supabaseUrl, configuration.serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
 });
+
+const LEGACY_DUPLICATE = Object.freeze({
+  modelId: "e2000000-0000-4000-8000-000000000401",
+  lineId: "e2000000-0000-4000-8000-000000000402",
+  shiftId: "e2000000-0000-4000-8000-000000000403",
+  slotId: "e2000000-0000-4000-8000-000000000404",
+  modelCode: "E2E-LEGACY-DUPLICATE-MODEL",
+  lineCode: "E2E-LEGACY-DUPLICATE-LINE",
+});
+
+function legacyDatedIds(productionDate) {
+  const stamp = productionDate.replaceAll("-", "");
+  const id = (suffix) => `e2000000-0000-4000-8000-${stamp}${suffix}`;
+  return Object.freeze({
+    production: id("0401"),
+    quality: id("0402"),
+    defect: id("0403"),
+    downtime: id("0404"),
+  });
+}
 
 function bangkokDate() {
   const values = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
@@ -72,6 +93,7 @@ async function ensureAuthUser(role) {
 async function seed() {
   const productionDate = bangkokDate();
   const datedIds = datedSeedIds(productionDate);
+  const legacyIds = legacyDatedIds(productionDate);
   const users = {
     operator: await ensureAuthUser("operator"),
     admin: await ensureAuthUser("admin"),
@@ -185,6 +207,51 @@ async function seed() {
     deleted_at: null,
   }, { onConflict: "id" }));
 
+  await must("upsert legacy duplicate masters", client.from("models").upsert({
+    id: LEGACY_DUPLICATE.modelId,
+    code: LEGACY_DUPLICATE.modelCode,
+    name: LEGACY_DUPLICATE.modelCode,
+    is_active: true,
+    created_by: adminId,
+    updated_by: adminId,
+    version: 1,
+    deleted_at: null,
+  }, { onConflict: "id" }));
+  await must("upsert legacy duplicate line", client.from("lines").upsert({
+    id: LEGACY_DUPLICATE.lineId,
+    code: LEGACY_DUPLICATE.lineCode,
+    name: LEGACY_DUPLICATE.lineCode,
+    is_active: true,
+    created_by: adminId,
+    updated_by: adminId,
+    version: 1,
+    deleted_at: null,
+  }, { onConflict: "id" }));
+  await must("upsert legacy DAY shift", client.from("shifts").upsert({
+    id: LEGACY_DUPLICATE.shiftId,
+    code: "DAY",
+    name: "DAY",
+    is_active: true,
+    created_by: adminId,
+    updated_by: adminId,
+    version: 1,
+    deleted_at: null,
+  }, { onConflict: "id" }));
+  await must("upsert legacy DAY A slot", client.from("time_slots").upsert({
+    id: LEGACY_DUPLICATE.slotId,
+    shift_id: LEGACY_DUPLICATE.shiftId,
+    code: "A",
+    starts_at: "07:30",
+    ends_at: "09:30",
+    end_day_offset: 0,
+    sequence: 1,
+    is_active: true,
+    created_by: adminId,
+    updated_by: adminId,
+    version: 1,
+    deleted_at: null,
+  }, { onConflict: "id" }));
+
   const process = await must("resolve AOI process", client.from("processes")
     .select("id")
     .eq("code", SEED_CONTRACT.codes.process)
@@ -193,6 +260,13 @@ async function seed() {
     .single());
   if (!process?.id) throw new Error("The migration-owned AOI process is required");
   const processId = process.id;
+  const legacyReason = await must("resolve legacy downtime reason", client.from("downtime_reasons")
+    .select("id")
+    .eq("code", "LEGACY_UNSPECIFIED")
+    .eq("is_active", true)
+    .is("deleted_at", null)
+    .single());
+  if (!legacyReason?.id) throw new Error("The migration-owned LEGACY_UNSPECIFIED reason is required");
   await must("upsert standard times", client.from("standard_times").upsert([
     {
       id: SEED_CONTRACT.ids.standardTime,
@@ -353,12 +427,81 @@ async function seed() {
     deleted_by: null,
   }, { onConflict: "id" }));
 
+  await softRetire("retire legacy duplicate defect", "defect_records", "id", [legacyIds.defect], adminId);
+  await softRetire("retire legacy duplicate downtime", "downtime_records", "id", [legacyIds.downtime], adminId);
+  await softRetire("retire legacy duplicate quality", "quality_records", "id", [legacyIds.quality], adminId);
+  await softRetire("retire legacy duplicate production", "production_records", "id", [legacyIds.production], adminId);
+  await must("upsert legacy duplicate production", client.from("production_records").upsert({
+    id: legacyIds.production,
+    production_date: productionDate,
+    shift_id: LEGACY_DUPLICATE.shiftId,
+    time_slot_id: LEGACY_DUPLICATE.slotId,
+    line_id: LEGACY_DUPLICATE.lineId,
+    model_id: LEGACY_DUPLICATE.modelId,
+    process_id: processId,
+    input_qty: 45,
+    actual_qty: 45,
+    note: "E2E legacy replacement target",
+    created_by: users.operator.id,
+    updated_by: users.operator.id,
+    version: 1,
+    deleted_at: null,
+    deleted_by: null,
+  }, { onConflict: "id" }));
+  await must("upsert legacy duplicate quality", client.from("quality_records").upsert({
+    id: legacyIds.quality,
+    production_record_id: legacyIds.production,
+    production_date: productionDate,
+    shift_id: LEGACY_DUPLICATE.shiftId,
+    time_slot_id: LEGACY_DUPLICATE.slotId,
+    line_id: LEGACY_DUPLICATE.lineId,
+    model_id: LEGACY_DUPLICATE.modelId,
+    process_id: processId,
+    input_qty: 45,
+    ok_qty: 43,
+    ng_qty: 2,
+    note: "E2E legacy replacement quality",
+    created_by: users.operator.id,
+    updated_by: users.operator.id,
+    version: 1,
+    deleted_at: null,
+    deleted_by: null,
+  }, { onConflict: "id" }));
+  await must("upsert legacy duplicate defect", client.from("defect_records").upsert({
+    id: legacyIds.defect,
+    quality_record_id: legacyIds.quality,
+    defect_type: "E2E solder bridge",
+    classification: "real",
+    quantity: 1,
+    note: "E2E legacy replacement defect",
+    created_by: users.operator.id,
+    updated_by: users.operator.id,
+    version: 1,
+    deleted_at: null,
+    deleted_by: null,
+  }, { onConflict: "id" }));
+  await must("upsert legacy duplicate downtime", client.from("downtime_records").upsert({
+    id: legacyIds.downtime,
+    production_record_id: legacyIds.production,
+    reason_id: legacyReason.id,
+    minutes: 3,
+    note: "E2E legacy replacement downtime",
+    created_by: users.operator.id,
+    updated_by: users.operator.id,
+    version: 1,
+    deleted_at: null,
+    deleted_by: null,
+  }, { onConflict: "id" }));
+
   await mkdir(path.dirname(configuration.workbookPath), { recursive: true });
   await writeFile(configuration.workbookPath, await buildDuplicateWorkbookBuffer(productionDate));
+  await writeFile(configuration.legacyWorkbookPath, await buildLegacyApprovalWorkbookBuffer(productionDate));
   const manifest = {
     ...publicSeedManifest(productionDate, processId),
     authUserIds: Object.fromEntries(Object.entries(users).map(([role, user]) => [role, user.id])),
     duplicateWorkbook: path.relative(projectRoot, configuration.workbookPath),
+    legacyApprovalWorkbook: path.relative(projectRoot, configuration.legacyWorkbookPath),
+    legacyDuplicate: { ...LEGACY_DUPLICATE, ...legacyIds },
   };
   await writeFile(path.join(projectRoot, ".e2e", "seed-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   console.log(`Seeded local SMD E2E fixture for ${productionDate}.`);

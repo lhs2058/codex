@@ -85,9 +85,20 @@ export interface UploadApproval {
   }>;
 }
 
+export interface ReviewableUploadBatch {
+  batchId: string;
+  sourceFileName: string;
+  sourceSha256: string;
+  workbookKind: DomainLegacyUploadReview["workbookKind"];
+  status: "staged" | "validated" | "failed";
+  createdAt: string;
+}
+
 export interface UploadRepository {
   stageUpload(file: File): Promise<LegacyUploadReview>;
   loadDetailPage(batchId: string, page: number, status?: string): Promise<UploadDetailPage>;
+  listReviewableBatches?(): Promise<ReviewableUploadBatch[]>;
+  openUploadReview?(batchId: string): Promise<LegacyUploadReview>;
   commitUpload(batchId: string, replaceConflicts: boolean, approval?: UploadApproval): Promise<UploadCommitResult & {
     skippedCount: number;
     masterInsertedCount: number;
@@ -754,6 +765,46 @@ export function createUploadRepository(
     },
 
     loadDetailPage,
+
+    async listReviewableBatches() {
+      const data = requestData(await client.rpc("list_reviewable_upload_batches", {}), "upload_batch_list_failed");
+      if (!Array.isArray(data)) throw new UploadRepositoryError("upload_batch_list_invalid");
+      return data.map((value: any) => ({
+        batchId: String(value.batchId),
+        sourceFileName: String(value.sourceFileName),
+        sourceSha256: String(value.sourceSha256),
+        workbookKind: value.workbookKind as DomainLegacyUploadReview["workbookKind"],
+        status: value.status as ReviewableUploadBatch["status"],
+        createdAt: String(value.createdAt),
+      }));
+    },
+
+    async openUploadReview(batchId) {
+      const value = requestData(await client.rpc("get_upload_batch_review", {
+        p_batch_id: batchId,
+      }), "upload_batch_review_failed") as any;
+      const detail = await loadDetailPage(batchId, 1);
+      return {
+        batchId: String(value.batchId),
+        sourceFileName: String(value.sourceFileName),
+        sourceSha256: String(value.sourceSha256),
+        workbookKind: value.workbookKind as DomainLegacyUploadReview["workbookKind"],
+        newCount: Number(value.newCount ?? 0),
+        conflictCount: Number(value.conflictCount ?? 0),
+        errorCount: Number(value.errorCount ?? 0),
+        unknownMasterDataCount: Number(value.unknownMasterDataCount ?? 0),
+        defectCount: Number(value.defectCount ?? 0),
+        rows: detail.rows,
+        diagnostics: detail.diagnostics,
+        masterCandidates: Array.isArray(value.masterCandidates) ? value.masterCandidates : [],
+        standardTimeCandidates: Array.isArray(value.standardTimeCandidates) ? value.standardTimeCandidates : [],
+        masterCandidateCount: Number(value.masterCandidateCount ?? 0),
+        standardTimeCandidateCount: Number(value.standardTimeCandidateCount ?? 0),
+        stWarnings: Array.isArray(value.stWarnings) ? value.stWarnings : [],
+        detailTotal: Number(value.detailTotal ?? detail.total),
+        detailPage: detail.page,
+      };
+    },
 
     async commitUpload(batchId, replaceConflicts, approval = { masterCandidates: [], standardTimeCandidates: [] }) {
       const masterApprovals = approval.masterCandidates.map(({ key, approved, approvedName }) => ({ key, approved, approvedName }));

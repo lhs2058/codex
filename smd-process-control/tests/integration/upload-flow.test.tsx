@@ -952,6 +952,66 @@ describe("upload repository", () => {
     });
   });
 
+  it("lists and opens an authorized staged review through bounded RPCs", async () => {
+    const rpc = vi.fn(async (name: string, args?: Record<string, unknown>) => {
+      if (name === "list_reviewable_upload_batches") {
+        return { data: [{
+          batchId: "batch-staged",
+          sourceFileName: "legacy-production.xlsx",
+          sourceSha256: "a".repeat(64),
+          workbookKind: "production",
+          status: "validated",
+          createdAt: "2026-07-31T00:00:00.000Z",
+        }], error: null };
+      }
+      if (name === "get_upload_batch_review") {
+        expect(args).toEqual({ p_batch_id: "batch-staged" });
+        return { data: {
+          batchId: "batch-staged",
+          sourceFileName: "legacy-production.xlsx",
+          sourceSha256: "a".repeat(64),
+          workbookKind: "production",
+          newCount: 1,
+          conflictCount: 1,
+          errorCount: 0,
+          unknownMasterDataCount: 0,
+          defectCount: 1,
+          masterCandidates: [],
+          standardTimeCandidates: [],
+          masterCandidateCount: 0,
+          standardTimeCandidateCount: 0,
+          stWarnings: [],
+          detailTotal: 2,
+        }, error: null };
+      }
+      if (name === "list_upload_detail_page") {
+        return { data: { total: 2, rows: [] }, error: null };
+      }
+      throw new Error(`unexpected RPC ${name}`);
+    });
+    const repository = createUploadRepository({ rpc } as unknown as UploadRepositoryClient);
+
+    await expect(repository.listReviewableBatches()).resolves.toEqual([
+      expect.objectContaining({ batchId: "batch-staged", sourceFileName: "legacy-production.xlsx" }),
+    ]);
+    await expect(repository.openUploadReview("batch-staged")).resolves.toEqual(
+      expect.objectContaining({
+        batchId: "batch-staged",
+        newCount: 1,
+        conflictCount: 1,
+        detailTotal: 2,
+        detailPage: 1,
+      }),
+    );
+    expect(rpc).toHaveBeenCalledWith("list_reviewable_upload_batches", {});
+    expect(rpc).toHaveBeenCalledWith("list_upload_detail_page", {
+      p_batch_id: "batch-staged",
+      p_offset: 0,
+      p_limit: 200,
+      p_status: null,
+    });
+  });
+
   it("routes candidate approvals through the atomic master-aware RPC and maps its result", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: {
       batch_id: "batch-1", status: "completed", inserted: 2, replaced: 1, skipped: 3, masters_inserted: 4, standard_times_inserted: 5,
@@ -1246,6 +1306,38 @@ describe("UploadPage", () => {
       masterCandidates: [],
       standardTimeCandidates: [],
     }));
+  });
+
+  it("lets an admin securely reopen an operator-staged batch for approval", async () => {
+    const staged = legacyReview({
+      batchId: "batch-staged",
+      conflictCount: 1,
+      rows: [{ ...parsedRow, status: "conflict", messages: ["Duplicate record"] }],
+    });
+    const repository = {
+      stageUpload: vi.fn(),
+      listReviewableBatches: vi.fn().mockResolvedValue([{
+        batchId: "batch-staged",
+        sourceFileName: "legacy-production.xlsx",
+        sourceSha256: "a".repeat(64),
+        workbookKind: "production" as const,
+        status: "validated" as const,
+        createdAt: "2026-07-31T00:00:00.000Z",
+      }]),
+      openUploadReview: vi.fn().mockResolvedValue(staged),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+
+    const open = await screen.findByRole("button", { name: "Open staged workbook legacy-production.xlsx" });
+    fireEvent.click(open);
+
+    await waitFor(() => expect(repository.openUploadReview).toHaveBeenCalledWith("batch-staged"));
+    expect(await screen.findByRole("region", { name: "Source workbook" })).toHaveTextContent("legacy-production.xlsx");
+    expect(screen.getByLabelText("Approve model MODEL-1")).toBeEnabled();
+    expect(screen.getByLabelText("Replace duplicate records")).toBeEnabled();
   });
 
   it("shows row diagnostics and disables commit when any invalid or unregistered row exists", async () => {

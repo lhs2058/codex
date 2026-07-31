@@ -1,34 +1,91 @@
 import path from "node:path";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { login, requiredEnv } from "./support";
 
-test("admin manages model and standard time, then explicitly replaces duplicate upload rows", async ({ page }) => {
-  await login(page, "admin", "/admin");
-  await expect(page.getByRole("link", { name: "기준정보 관리" })).toBeVisible();
+const LEGACY = Object.freeze({
+  modelCode: "E2E-LEGACY-MODEL",
+  lineCode: "E2E-LEGACY-LINE",
+  workbookName: "legacy-master-approval.xlsx",
+  process: "AOI",
+});
 
-  await page.getByLabel("모델 코드").fill(requiredEnv("E2E_ADMIN_MODEL_CODE"));
-  await page.getByLabel("모델명").fill(requiredEnv("E2E_ADMIN_MODEL_NAME"));
-  const modelResponse = page.waitForResponse((response) =>
-    response.request().method() === "POST" && response.url().includes("/rpc/admin_manage_configuration"));
-  await page.getByRole("button", { name: "모델 추가" }).click();
-  const createdModel = await (await modelResponse).json() as { id?: string };
-  expect(createdModel.id).toMatch(/^[0-9a-f-]{36}$/);
-  await expect(page.getByLabel("모델 코드")).toHaveValue("");
+async function approveCandidate(page: Page, label: string) {
+  const checkbox = page.getByLabel(label, { exact: true });
+  await expect(checkbox).toBeEnabled();
+  await checkbox.check();
+}
 
-  await page.getByLabel("표준시간 모델").fill(createdModel.id!);
-  await page.getByLabel("공정", { exact: true }).selectOption({ label: requiredEnv("E2E_PROCESS_LABEL") });
-  await page.getByLabel("라인", { exact: true }).selectOption({ label: requiredEnv("E2E_LINE_LABEL") });
-  await page.getByLabel("개당 초").fill(requiredEnv("E2E_ST_SECONDS"));
-  await page.getByLabel("적용 시작일").fill(requiredEnv("E2E_ST_EFFECTIVE_FROM"));
-  await page.getByRole("button", { name: "표준시간 저장" }).click();
-  await expect(page.getByLabel("개당 초")).toHaveValue("");
+test("operator stages a legacy workbook and an admin reopens, approves, replaces, and verifies it end to end", async ({ browser }) => {
+  const workbook = path.resolve(requiredEnv("E2E_LEGACY_WORKBOOK"));
+  const operatorContext = await browser.newContext();
+  const adminContext = await browser.newContext();
+  try {
+    const operator = await operatorContext.newPage();
+    await login(operator, "operator", "/upload");
+    await operator.getByLabel("엑셀 파일").setInputFiles(workbook);
 
-  await page.goto("/upload");
-  await page.getByLabel("엑셀 파일").setInputFiles(path.resolve(requiredEnv("E2E_DUPLICATE_WORKBOOK")));
-  await expect(page.getByLabel("업로드 요약")).toContainText("중복");
-  const replace = page.getByLabel("중복 기록 교체");
-  await expect(replace).toBeVisible();
-  await replace.check();
-  await page.getByRole("button", { name: "업로드 저장" }).click();
-  await expect(page.getByRole("status")).toContainText("교체");
+    const operatorSummary = operator.getByLabel("업로드 요약");
+    await expect(operatorSummary).toContainText("신규: 2");
+    await expect(operatorSummary).toContainText("중복: 1");
+    await expect(operatorSummary).toContainText("오류: 0");
+    await expect(operator.getByLabel(`model ${LEGACY.modelCode} 승인`)).toBeDisabled();
+    await expect(operator.getByLabel(`line ${LEGACY.lineCode} 승인`)).toBeDisabled();
+    await expect(operator.getByLabel("shift NIGHT 승인")).toBeDisabled();
+    await expect(operator.getByLabel("time_slot B 승인")).toBeDisabled();
+    await expect(operator.getByLabel("중복 교체")).toBeDisabled();
+    await expect(operator.getByRole("button", { name: "업로드 저장" })).toBeDisabled();
+
+    const admin = await adminContext.newPage();
+    await login(admin, "admin", "/upload");
+    await admin.getByRole("button", {
+      name: `${LEGACY.workbookName} 배치 열기`,
+    }).click();
+    await expect(admin.getByLabel("원본 워크북")).toContainText(LEGACY.workbookName);
+
+    await approveCandidate(admin, `model ${LEGACY.modelCode} 승인`);
+    await approveCandidate(admin, `line ${LEGACY.lineCode} 승인`);
+    await approveCandidate(admin, "shift NIGHT 승인");
+    await approveCandidate(admin, "time_slot B 승인");
+    await expect(admin.getByLabel("downtime_reason LEGACY_UNSPECIFIED 승인")).toBeChecked();
+    await expect(admin.getByLabel("downtime_reason LEGACY_UNSPECIFIED 승인")).toBeDisabled();
+    await approveCandidate(
+      admin,
+      `${LEGACY.modelCode} ${LEGACY.lineCode} ${LEGACY.process} 표준시간(ST) 승인`,
+    );
+    await admin.getByLabel("중복 교체").check();
+    await admin.getByRole("button", { name: "업로드 저장" }).click();
+
+    await expect(admin.getByRole("status")).toContainText(
+      "반영 완료: 신규 2건, 교체 1건, 건너뛰기 0건, 기준정보 4건, 표준시간(ST) 1건",
+    );
+
+    await admin.goto("/");
+    await admin.getByLabel("생산일", { exact: true }).fill(requiredEnv("E2E_OPERATOR_DATE"));
+    await admin.getByLabel("모델", { exact: true }).selectOption({
+      label: `${LEGACY.modelCode} · ${LEGACY.modelCode}`,
+    });
+    await admin.getByLabel("라인", { exact: true }).selectOption({ label: LEGACY.lineCode });
+    await admin.getByLabel("공정", { exact: true }).selectOption({ label: LEGACY.process });
+    const dashboard = admin.getByTestId("dashboard-main");
+    await expect(dashboard).toHaveAttribute("data-dashboard-state", "ready");
+    await expect(dashboard).toHaveAttribute("data-dashboard-total-actual", "55");
+    await expect(admin.getByRole("table", { name: "공정별 라인 수율" })).toContainText(LEGACY.process);
+    await expect(admin.getByRole("table", { name: "공정별 라인 수율" })).toContainText(LEGACY.lineCode);
+    await expect(admin.getByRole("region", { name: "라인 가동률" })).toContainText(LEGACY.lineCode);
+    await expect(admin.getByRole("region", { name: "라인 가동률" })).toContainText("%");
+
+    let secondBatchInsert = 0;
+    admin.on("request", (request) => {
+      if (request.method() === "POST" && /\/rest\/v1\/upload_batches(?:\?|$)/.test(request.url())) {
+        secondBatchInsert += 1;
+      }
+    });
+    await admin.goto("/upload");
+    await admin.getByLabel("엑셀 파일").setInputFiles(workbook);
+    await expect(admin.getByRole("status")).toContainText("이미 반영이 완료된 워크북입니다.");
+    expect(secondBatchInsert).toBe(0);
+  } finally {
+    await operatorContext.close();
+    await adminContext.close();
+  }
 });

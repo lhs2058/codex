@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { parseStandardWorkbook } from "../../src/excel/adapters/standard-adapter";
+import { parseProductionWorkbook } from "../../src/excel/adapters/production-adapter";
 import type { WorkbookSheet } from "../../src/excel/contracts";
 import {
   SEED_CONTRACT,
   assertSeedEnvironment,
   buildDuplicateWorkbookBuffer,
+  buildLegacyApprovalWorkbookBuffer,
   datedSeedIds,
   publicSeedManifest,
 } from "../../scripts/e2e-seed-contract.mjs";
@@ -19,6 +21,7 @@ const completeEnvironment = {
   E2E_ADMIN_PASSWORD: "admin-password",
   E2E_VIEWER_PASSWORD: "viewer-password",
   E2E_DUPLICATE_WORKBOOK: ".e2e/duplicate-upload.xlsx",
+  E2E_LEGACY_WORKBOOK: ".e2e/legacy-master-approval.xlsx",
   E2E_SEED_CONFIRM: "local-only-smd-e2e",
 };
 
@@ -29,6 +32,9 @@ describe("local E2E seed contract", () => {
     expect(() => assertSeedEnvironment({ ...completeEnvironment, E2E_SEED_CONFIRM: "yes" })).toThrow(/E2E_SEED_CONFIRM/);
     expect(() => assertSeedEnvironment({ ...completeEnvironment, SUPABASE_URL: "https://project.supabase.co" })).toThrow(/local Supabase/);
     expect(() => assertSeedEnvironment({ ...completeEnvironment, SUPABASE_URL: "http://127.0.0.1:54322" })).toThrow(/local Supabase/);
+    expect(assertSeedEnvironment(completeEnvironment).legacyWorkbookPath).toBe(
+      path.resolve(process.cwd(), ".e2e/legacy-master-approval.xlsx"),
+    );
   });
 
   it("publishes exact date-stable IDs and values without exposing credentials", () => {
@@ -74,6 +80,51 @@ describe("local E2E seed contract", () => {
       okQty: 198,
       ngQty: 2,
     })]);
+  });
+
+  it("generates DAY/A and NIGHT/B legacy evidence plus one deterministic duplicate", async () => {
+    const buffer = await buildLegacyApprovalWorkbookBuffer("2026-07-28");
+    await expect(readSheetNames(buffer)).resolves.toEqual(["28.07"]);
+    const parsed = parseProductionWorkbook([{
+      sheet: "28.07",
+      data: await readXlsxFile(buffer, { sheet: "28.07" }),
+    }]);
+
+    expect(parsed.diagnostics).toEqual([]);
+    expect(parsed.rows).toEqual([
+      expect.objectContaining({
+        productionDate: "2026-07-28",
+        shiftCode: "DAY",
+        timeSlotCode: "A",
+        lineCode: "E2E-LEGACY-LINE",
+        modelCode: "E2E-LEGACY-MODEL",
+        processCode: "AOI",
+        actualQty: 25,
+        downtimeMinutes: 5,
+      }),
+      expect.objectContaining({
+        productionDate: "2026-07-28",
+        shiftCode: "NIGHT",
+        timeSlotCode: "B",
+        lineCode: "E2E-LEGACY-LINE",
+        modelCode: "E2E-LEGACY-MODEL",
+        processCode: "AOI",
+        actualQty: 30,
+      }),
+      expect.objectContaining({
+        productionDate: "2026-07-28",
+        shiftCode: "DAY",
+        timeSlotCode: "A",
+        lineCode: "E2E-LEGACY-DUPLICATE-LINE",
+        modelCode: "E2E-LEGACY-DUPLICATE-MODEL",
+        processCode: "AOI",
+        actualQty: 45,
+      }),
+    ]);
+    expect(parsed.capacityEvidence).toEqual([
+      expect.objectContaining({ shiftCode: "DAY", timeSlotCode: "A", capacityQty: 720 }),
+      expect.objectContaining({ shiftCode: "NIGHT", timeSlotCode: "B", capacityQty: 1260 }),
+    ]);
   });
 
   it("reconciles a second run through stable upserts and recoverable soft retirement only", async () => {

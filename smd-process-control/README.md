@@ -146,13 +146,18 @@ $env:E2E_OPERATOR_PASSWORD='<local test password>'
 $env:E2E_ADMIN_PASSWORD='<local test password>'
 $env:E2E_VIEWER_PASSWORD='<local test password>'
 $env:E2E_DUPLICATE_WORKBOOK='.e2e\duplicate-upload.xlsx'
+$env:E2E_LEGACY_WORKBOOK='.e2e\legacy-master-approval.xlsx'
 $env:E2E_SEED_CONFIRM='local-only-smd-e2e'
 npm run seed:e2e
 ```
 
-The script is idempotent for its fixture scope. It creates or updates employee IDs `910001` (operator), `910002` (admin), and `910003` (viewer); their Auth UUIDs are resolved and recorded without credentials in `.e2e/seed-manifest.json`. It creates fixed-ID `E2E-MODEL`, `LINE-1`, `LINE-2`, `E2E-DAY`, `E2E-08`, `E2E-09`, `E2E-WAIT`, standard-time, and target fixtures. Production, quality, and downtime IDs are deterministic for the Bangkok production date so a next-day seed never mutates immutable production dimensions. AOI is the migration-owned process and its resolved UUID is written to the manifest. Re-seeding retires only prior rows in this fixture namespace by setting audit-aware deletion or inactive fields, then upserts the current fixture IDs; it never physically deletes application records.
+The script is idempotent before the approval scenario commits its intentionally absent candidates. It creates or updates employee IDs `910001` (operator), `910002` (admin), and `910003` (viewer); their Auth UUIDs are resolved and recorded without credentials in `.e2e/seed-manifest.json`. It creates fixed-ID `E2E-MODEL`, `LINE-1`, `LINE-2`, `E2E-DAY`, `E2E-08`, `E2E-09`, `E2E-WAIT`, standard-time, and target fixtures. Production, quality, and downtime IDs are deterministic for the Bangkok production date so a next-day seed never mutates immutable production dimensions. AOI is the migration-owned process and its resolved UUID is written to the manifest. Re-seeding retires only prior rows in this fixture namespace by setting audit-aware deletion or inactive fields, then upserts the current fixture IDs; it never physically deletes application records.
 
 For the Bangkok current day, the date-derived concurrency record is version 3 with input/actual/OK/NG `100/100/99/1` and 5 downtime minutes; its exact ID is written to `.e2e/seed-manifest.json`. A second report record contributes actual 200, so the `LINE-1` dashboard baseline is exactly 300. The concurrency edit is `110/110/109/1`, advances the first record to version 4, and makes the exact dashboard total 310. The generated workbook duplicates the separate report record (`E2E-09`) so admin replacement cannot invalidate the concurrency version.
+
+The legacy approval fixture is generated from scratch under `.e2e`; it is never derived by editing a preserved workbook. It contains `E2E-LEGACY-MODEL` / `E2E-LEGACY-LINE` DAY/A and NIGHT/B CAPA evidence, two new details, and one deterministic existing DAY/A replacement target. That target has linked quality `43/2`, one real defect, and three downtime minutes before replacement. No standard time exists for the new model/line period. DAY/A and the fixed legacy downtime reason already exist; NIGHT/B, model, line, and the resulting standard time require admin approval. After the scenario commits those candidates, run `npx supabase db reset` before repeating the complete scenario so it starts from the same absent-candidate contract.
+
+Migration `20260731010321_staged_upload_review.sql` supplies the authenticated review queue. Admins and viewers may list reviewable batches, operators see only batches they own, and opening a batch reuses the existing visibility boundary. The RPCs return review metadata and candidates but never return the private Storage path. This migration must be applied before the admin E2E flow runs.
 
 Load the public E2E variables from that contract:
 
@@ -192,7 +197,7 @@ npx playwright test --list
 npm run test:e2e
 ```
 
-The E2E suite verifies operator/admin/viewer navigation and direct-route guards, admin-only duplicate replacement, report downloads, two-context `record_version_conflict` draft retention, and dashboard Realtime refresh within five seconds. No critical test may be skipped.
+The E2E suite verifies operator/admin/viewer navigation and direct-route guards, operator staging followed by admin reopening and candidate/ST approval, admin-only duplicate replacement, exact atomic result counts, completed SHA-256 reuse without a second batch, dashboard model/line/yield/utilization visibility, report downloads, two-context `record_version_conflict` draft retention, and dashboard Realtime refresh within five seconds. No critical test may be skipped.
 
 ## Dependency advisory record
 

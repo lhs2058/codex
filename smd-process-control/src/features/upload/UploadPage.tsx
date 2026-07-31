@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuthState } from "../../auth/AuthProvider";
 import { createMasterDataRepository, type MasterDataRepository } from "../../data/repositories/master-data-repository";
 import {
@@ -22,6 +22,9 @@ const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.title": "Workbook upload",
   "upload.downloadTemplate": "Download standard template",
   "upload.workbook": "Workbook",
+  "upload.reviewableBatches": "Reviewable workbooks",
+  "upload.reviewableBatchesLoading": "Loading reviewable workbooks…",
+  "upload.openStagedWorkbook": "Open staged workbook {name}",
   "upload.validating": "Validating workbook…",
   "upload.preparing": "Preparing template…",
   "upload.stagingFailed": "Workbook staging failed",
@@ -146,6 +149,11 @@ export function UploadPage({
   const masterRepositoryRef = useRef(masterDataRepository).current;
   const requestGenerationRef = useRef(0);
   const [review, setReview] = useState<UploadReview | null>(null);
+  const [reviewableBatches, setReviewableBatches] = useState<Array<{
+    batchId: string;
+    sourceFileName: string;
+  }>>([]);
+  const [batchListLoading, setBatchListLoading] = useState(false);
   const [approval, setApproval] = useState<UploadApproval>({
     masterCandidates: [],
     standardTimeCandidates: [],
@@ -156,6 +164,23 @@ export function UploadPage({
   const [busy, setBusy] = useState<"stage" | "commit" | "download" | null>(null);
   const [error, setError] = useState("");
   const [commitMessage, setCommitMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    if (!repositoryRef.listReviewableBatches) return () => { active = false; };
+    setBatchListLoading(true);
+    repositoryRef.listReviewableBatches()
+      .then((batches) => {
+        if (active) setReviewableBatches(batches);
+      })
+      .catch((listError) => {
+        if (active) setError(listError instanceof Error ? listError.message : "upload_batch_list_failed");
+      })
+      .finally(() => {
+        if (active) setBatchListLoading(false);
+      });
+    return () => { active = false; };
+  }, [repositoryRef]);
 
   const stage = async (file: File | undefined) => {
     if (!file || busy) return;
@@ -212,6 +237,27 @@ export function UploadPage({
     }
   };
 
+  const openBatch = async (batchId: string) => {
+    if (!repositoryRef.openUploadReview || busy || pageBusy) return;
+    requestGenerationRef.current += 1;
+    setPageBusy(true);
+    setError("");
+    setCommitMessage("");
+    setReview(null);
+    setApproval({ masterCandidates: [], standardTimeCandidates: [] });
+    setReplaceConflicts(false);
+    setDetailStatus("");
+    try {
+      const nextReview = await repositoryRef.openUploadReview(batchId);
+      setReview(nextReview);
+      setApproval(initialApproval(nextReview));
+    } catch (openError) {
+      setError(openError instanceof Error ? openError.message : "upload_batch_review_failed");
+    } finally {
+      setPageBusy(false);
+    }
+  };
+
   const commit = async () => {
     if (
       !review
@@ -225,6 +271,7 @@ export function UploadPage({
     setError("");
     try {
       const result = await repositoryRef.commitUpload(review.batchId, replaceConflicts, approval);
+      setReviewableBatches((current) => current.filter((batch) => batch.batchId !== review.batchId));
       setCommitMessage(t("upload.committedDetailed", {
         inserted: result.insertedCount,
         replaced: result.replacedCount,
@@ -270,6 +317,23 @@ export function UploadPage({
 
   return <main className="feature-main upload-main">
     <h1>{t("upload.title")}</h1>
+    {repositoryRef.listReviewableBatches && <section aria-label={t("upload.reviewableBatches")}>
+      <h2>{t("upload.reviewableBatches")}</h2>
+      {batchListLoading && <p role="status">{t("upload.reviewableBatchesLoading")}</p>}
+      {reviewableBatches.length > 0 && <ul>
+        {reviewableBatches.map((batch) => <li key={batch.batchId}>
+          <span>{batch.sourceFileName}</span>{" "}
+          <button
+            type="button"
+            disabled={busy !== null || pageBusy}
+            aria-label={t("upload.openStagedWorkbook", { name: batch.sourceFileName })}
+            onClick={() => void openBatch(batch.batchId)}
+          >
+            {t("upload.openStagedWorkbook", { name: batch.sourceFileName })}
+          </button>
+        </li>)}
+      </ul>}
+    </section>}
     <div className="upload-actions">
       <button type="button" onClick={download} disabled={busy !== null}>{t("upload.downloadTemplate")}</button>
       <label htmlFor="upload-workbook">{t("upload.workbook")} <input id="upload-workbook" type="file" accept=".xlsx" disabled={busy !== null} onChange={(event) => void stage(event.target.files?.[0])} /></label>

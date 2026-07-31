@@ -144,6 +144,25 @@ describe("final database and security migration contracts", () => {
     expect(stagingCandidateRead).toBeLessThan(stagingCandidateInsert);
   });
 
+  it("exposes staged upload review without leaking private storage paths", () => {
+    const sql = readMigration("20260731010321_staged_upload_review.sql");
+
+    expect(sql).toMatch(/create function public\.list_reviewable_upload_batches\(\)/i);
+    expect(sql).toMatch(/create function public\.get_upload_batch_review\(\s*p_batch_id uuid\s*\)/i);
+    expect(sql.match(/security definer/gi)).toHaveLength(2);
+    expect(sql.match(/set search_path = ''/gi)).toHaveLength(2);
+    expect(sql).toMatch(/from private\.current_profile\(\)/i);
+    expect(sql).toMatch(/profile_is_active/i);
+    expect(sql).toMatch(/app_role in \('viewer', 'admin'\)/i);
+    expect(sql).toMatch(/batch\.created_by = actor_id/i);
+    expect(sql).toMatch(/private\.can_view_upload_batch\(p_batch_id\)/i);
+    expect(sql).not.toMatch(/jsonb_build_object\([\s\S]*?'storagePath'|jsonb_build_object\([\s\S]*?'storage_path'/i);
+    expect(sql).toMatch(/revoke all on function public\.list_reviewable_upload_batches\(\)\s+from public, anon, authenticated/i);
+    expect(sql).toMatch(/revoke all on function public\.get_upload_batch_review\(uuid\)\s+from public, anon, authenticated/i);
+    expect(sql).toMatch(/grant execute on function public\.list_reviewable_upload_batches\(\)\s+to authenticated/i);
+    expect(sql).toMatch(/grant execute on function public\.get_upload_batch_review\(uuid\)\s+to authenticated/i);
+  });
+
   it("rejects inactive manual dimensions and exposes hardened optimistic admin RPCs only to intended roles", () => {
     const uploadSql = readMigration("018_atomic_upload_and_manual_validation.sql");
     const adminSql = readMigration("019_admin_rpc_and_verified_actor.sql");
