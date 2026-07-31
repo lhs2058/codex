@@ -9,6 +9,7 @@ import {
   buildLegacyApprovalWorkbookBuffer,
   datedSeedIds,
   publicSeedManifest,
+  runAfterSeedPreflight,
 } from "./e2e-seed-contract.mjs";
 
 const projectRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -90,10 +91,94 @@ async function ensureAuthUser(role) {
   return user;
 }
 
+async function loadSeedPreflight() {
+  const candidateKeys = [
+    "model|E2E-LEGACY-MODEL",
+    "line|E2E-LEGACY-LINE",
+    "shift|NIGHT",
+    "time_slot|NIGHT|B",
+  ];
+  const fileNames = [
+    path.basename(configuration.workbookPath),
+    path.basename(configuration.legacyWorkbookPath),
+  ];
+  const [
+    reviewRpc,
+    process,
+    legacyReason,
+    candidateModels,
+    candidateLines,
+    candidateShifts,
+    masterCandidateRows,
+    standardTimeCandidateRows,
+    uploadBatches,
+    storageRoots,
+  ] = await Promise.all([
+    client.rpc("list_reviewable_upload_batches", {}),
+    client.from("processes").select("id").eq("code", SEED_CONTRACT.codes.process)
+      .eq("is_active", true).is("deleted_at", null).limit(1).maybeSingle(),
+    client.from("downtime_reasons").select("id").eq("code", "LEGACY_UNSPECIFIED")
+      .eq("is_active", true).is("deleted_at", null).limit(1).maybeSingle(),
+    client.from("models").select("id", { count: "exact", head: true })
+      .eq("code", "E2E-LEGACY-MODEL"),
+    client.from("lines").select("id", { count: "exact", head: true })
+      .eq("code", "E2E-LEGACY-LINE"),
+    client.from("shifts").select("id", { count: "exact", head: true })
+      .eq("code", "NIGHT"),
+    client.from("upload_master_candidates").select("id", { count: "exact", head: true })
+      .in("candidate_key", candidateKeys),
+    client.from("upload_standard_time_candidates").select("id", { count: "exact", head: true })
+      .like("candidate_key", "E2E-LEGACY-MODEL|E2E-LEGACY-LINE|%"),
+    client.from("upload_batches").select("id", { count: "exact", head: true })
+      .in("source_file_name", fileNames),
+    client.storage.from("smd-upload-originals").list("", { limit: 1000 }),
+  ]);
+
+  let storageObjectCount = 0;
+  if (!storageRoots.error) {
+    for (const root of storageRoots.data ?? []) {
+      if (fileNames.includes(root.name)) storageObjectCount += 1;
+      if (root.id === null) {
+        const nested = await client.storage.from("smd-upload-originals").list(root.name, { limit: 1000 });
+        if (nested.error) throw new Error(`inspect E2E storage namespace: ${nested.error.message}`);
+        storageObjectCount += (nested.data ?? []).filter((item) =>
+          fileNames.some((name) => item.name.endsWith(name))).length;
+      }
+    }
+  }
+
+  const prerequisiteReads = [
+    process,
+    legacyReason,
+    candidateModels,
+    candidateLines,
+    candidateShifts,
+    masterCandidateRows,
+    standardTimeCandidateRows,
+    uploadBatches,
+  ];
+  return {
+    reviewRpcAvailable: reviewRpc.error?.code !== "PGRST202",
+    candidateTablesAvailable: prerequisiteReads.every((result) => !result.error),
+    processId: process.data?.id ?? null,
+    legacyReasonId: legacyReason.data?.id ?? null,
+    candidateNamespaceCount:
+      (candidateModels.count ?? 0)
+      + (candidateLines.count ?? 0)
+      + (candidateShifts.count ?? 0),
+    candidateRowCount:
+      (masterCandidateRows.count ?? 0)
+      + (standardTimeCandidateRows.count ?? 0),
+    uploadBatchCount: uploadBatches.count ?? 0,
+    storageObjectCount: storageRoots.error ? 1 : storageObjectCount,
+  };
+}
+
 async function seed() {
   const productionDate = bangkokDate();
   const datedIds = datedSeedIds(productionDate);
-  const legacyIds = legacyDatedIds(productionDate);
+  return runAfterSeedPreflight(loadSeedPreflight, async (preflight) => {
+    const legacyIds = legacyDatedIds(productionDate);
   const users = {
     operator: await ensureAuthUser("operator"),
     admin: await ensureAuthUser("admin"),
@@ -252,21 +337,8 @@ async function seed() {
     deleted_at: null,
   }, { onConflict: "id" }));
 
-  const process = await must("resolve AOI process", client.from("processes")
-    .select("id")
-    .eq("code", SEED_CONTRACT.codes.process)
-    .eq("is_active", true)
-    .is("deleted_at", null)
-    .single());
-  if (!process?.id) throw new Error("The migration-owned AOI process is required");
-  const processId = process.id;
-  const legacyReason = await must("resolve legacy downtime reason", client.from("downtime_reasons")
-    .select("id")
-    .eq("code", "LEGACY_UNSPECIFIED")
-    .eq("is_active", true)
-    .is("deleted_at", null)
-    .single());
-  if (!legacyReason?.id) throw new Error("The migration-owned LEGACY_UNSPECIFIED reason is required");
+  const processId = preflight.processId;
+  const legacyReasonId = preflight.legacyReasonId;
   await must("upsert standard times", client.from("standard_times").upsert([
     {
       id: SEED_CONTRACT.ids.standardTime,
@@ -483,7 +555,7 @@ async function seed() {
   await must("upsert legacy duplicate downtime", client.from("downtime_records").upsert({
     id: legacyIds.downtime,
     production_record_id: legacyIds.production,
-    reason_id: legacyReason.id,
+    reason_id: legacyReasonId,
     minutes: 3,
     note: "E2E legacy replacement downtime",
     created_by: users.operator.id,
@@ -506,6 +578,7 @@ async function seed() {
   await writeFile(path.join(projectRoot, ".e2e", "seed-manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   console.log(`Seeded local SMD E2E fixture for ${productionDate}.`);
   console.log(`Manifest: ${path.join(projectRoot, ".e2e", "seed-manifest.json")}`);
+  });
 }
 
 await seed();

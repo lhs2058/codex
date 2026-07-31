@@ -68,11 +68,15 @@ declare
   batch public.upload_batches%rowtype;
   master_candidates jsonb;
   standard_time_candidates jsonb;
+  master_candidate_count bigint;
+  standard_time_candidate_count bigint;
   detail_new_count bigint;
   detail_conflict_count bigint;
   detail_error_count bigint;
   detail_total bigint;
   defect_count bigint;
+  candidate_payload_limit constant integer := 100;
+  evidence_payload_limit constant integer := 20;
 begin
   select *
   into actor_profile
@@ -122,16 +126,53 @@ begin
   where detail.batch_id = p_batch_id
     and detail.deleted_at is null;
 
-  select coalesce(
-    jsonb_agg(candidate.proposed_data order by candidate.candidate_key),
-    '[]'::jsonb
-  )
-  into master_candidates
+  select count(*)
+  into master_candidate_count
   from public.upload_master_candidates as candidate
   where candidate.batch_id = p_batch_id;
 
-  select coalesce(
-    jsonb_agg(
+  select coalesce(jsonb_agg(item.payload order by item.candidate_key), '[]'::jsonb)
+  into master_candidates
+  from (
+    select
+      candidate.candidate_key,
+      (candidate.proposed_data - 'sources' - 'messages')
+      || jsonb_build_object(
+        'sources',
+        coalesce((
+          select jsonb_agg(evidence.value order by evidence.ordinality)
+          from jsonb_array_elements(candidate.sources)
+            with ordinality as evidence(value, ordinality)
+          where evidence.ordinality <= evidence_payload_limit
+        ), '[]'::jsonb),
+        'messages',
+        coalesce((
+          select jsonb_agg(message.value order by message.ordinality)
+          from jsonb_array_elements(candidate.messages)
+            with ordinality as message(value, ordinality)
+          where message.ordinality <= evidence_payload_limit
+        ), '[]'::jsonb),
+        'sourcesTruncated',
+        jsonb_array_length(candidate.sources) > evidence_payload_limit,
+        'messagesTruncated',
+        jsonb_array_length(candidate.messages) > evidence_payload_limit
+      ) as payload
+    from public.upload_master_candidates as candidate
+    where candidate.batch_id = p_batch_id
+    order by candidate.candidate_key
+    limit candidate_payload_limit
+  ) as item;
+
+  select count(*)
+  into standard_time_candidate_count
+  from public.upload_standard_time_candidates as candidate
+  where candidate.batch_id = p_batch_id;
+
+  select coalesce(jsonb_agg(item.payload order by item.candidate_key), '[]'::jsonb)
+  into standard_time_candidates
+  from (
+    select
+      candidate.candidate_key,
       jsonb_build_object(
         'key', candidate.candidate_key,
         'modelCode', candidate.model_code,
@@ -146,16 +187,28 @@ begin
         'maximum', candidate.maximum_seconds_per_unit,
         'effectiveFrom', candidate.effective_from,
         'effectiveTo', candidate.effective_to,
-        'messages', candidate.messages,
-        'observations', candidate.observations
-      )
-      order by candidate.candidate_key
-    ),
-    '[]'::jsonb
-  )
-  into standard_time_candidates
-  from public.upload_standard_time_candidates as candidate
-  where candidate.batch_id = p_batch_id;
+        'messages', coalesce((
+          select jsonb_agg(message.value order by message.ordinality)
+          from jsonb_array_elements(candidate.messages)
+            with ordinality as message(value, ordinality)
+          where message.ordinality <= evidence_payload_limit
+        ), '[]'::jsonb),
+        'observations', coalesce((
+          select jsonb_agg(evidence.value order by evidence.ordinality)
+          from jsonb_array_elements(candidate.observations)
+            with ordinality as evidence(value, ordinality)
+          where evidence.ordinality <= evidence_payload_limit
+        ), '[]'::jsonb),
+        'messagesTruncated',
+        jsonb_array_length(candidate.messages) > evidence_payload_limit,
+        'observationsTruncated',
+        jsonb_array_length(candidate.observations) > evidence_payload_limit
+      ) as payload
+    from public.upload_standard_time_candidates as candidate
+    where candidate.batch_id = p_batch_id
+    order by candidate.candidate_key
+    limit candidate_payload_limit
+  ) as item;
 
   return jsonb_build_object(
     'batchId', batch.id,
@@ -169,8 +222,12 @@ begin
     'defectCount', defect_count,
     'masterCandidates', master_candidates,
     'standardTimeCandidates', standard_time_candidates,
-    'masterCandidateCount', jsonb_array_length(master_candidates),
-    'standardTimeCandidateCount', jsonb_array_length(standard_time_candidates),
+    'masterCandidateCount', master_candidate_count,
+    'standardTimeCandidateCount', standard_time_candidate_count,
+    'candidatePayloadLimit', candidate_payload_limit,
+    'candidateEvidenceLimit', evidence_payload_limit,
+    'masterCandidatesTruncated', master_candidate_count > candidate_payload_limit,
+    'standardTimeCandidatesTruncated', standard_time_candidate_count > candidate_payload_limit,
     'stWarnings', '[]'::jsonb,
     'detailTotal', detail_total
   );

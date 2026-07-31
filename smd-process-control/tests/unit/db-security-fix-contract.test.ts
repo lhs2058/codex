@@ -163,6 +163,22 @@ describe("final database and security migration contracts", () => {
     expect(sql).toMatch(/grant execute on function public\.get_upload_batch_review\(uuid\)\s+to authenticated/i);
   });
 
+  it("bounds privileged candidate and evidence JSON while returning total-count truncation metadata", () => {
+    const sql = readMigration("20260731010321_staged_upload_review.sql");
+
+    expect(sql).toMatch(/candidate_payload_limit constant integer := 100/i);
+    expect(sql).toMatch(/evidence_payload_limit constant integer := 20/i);
+    expect(sql.match(/limit candidate_payload_limit/gi)).toHaveLength(2);
+    expect(sql.match(/with ordinality/gi)?.length).toBeGreaterThanOrEqual(2);
+    expect(sql.match(/ordinality <= evidence_payload_limit/gi)?.length).toBeGreaterThanOrEqual(2);
+    expect(sql).toMatch(/select count\(\*\)[\s\S]*from public\.upload_master_candidates/i);
+    expect(sql).toMatch(/select count\(\*\)[\s\S]*from public\.upload_standard_time_candidates/i);
+    expect(sql).toMatch(/'candidatePayloadLimit', candidate_payload_limit/i);
+    expect(sql).toMatch(/'candidateEvidenceLimit', evidence_payload_limit/i);
+    expect(sql).toMatch(/'masterCandidatesTruncated', master_candidate_count > candidate_payload_limit/i);
+    expect(sql).toMatch(/'standardTimeCandidatesTruncated', standard_time_candidate_count > candidate_payload_limit/i);
+  });
+
   it("rejects inactive manual dimensions and exposes hardened optimistic admin RPCs only to intended roles", () => {
     const uploadSql = readMigration("018_atomic_upload_and_manual_validation.sql");
     const adminSql = readMigration("019_admin_rpc_and_verified_actor.sql");

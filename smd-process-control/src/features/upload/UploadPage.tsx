@@ -95,6 +95,10 @@ function initialApproval(review: UploadReview): UploadApproval {
 
 function candidatesResolved(review: UploadReview, approval: UploadApproval): boolean {
   if (!isLegacyReview(review)) return true;
+  if (
+    review.masterCandidateCount !== review.masterCandidates.length
+    || review.standardTimeCandidateCount !== review.standardTimeCandidates.length
+  ) return false;
   if (review.masterCandidates.some((candidate) => candidate.status === "error")) return false;
   if (review.standardTimeCandidates.some(isBlockedStandardTimeCandidate)) return false;
 
@@ -168,23 +172,32 @@ export function UploadPage({
   useEffect(() => {
     let active = true;
     if (!repositoryRef.listReviewableBatches) return () => { active = false; };
+    const requestedGeneration = ++requestGenerationRef.current;
     setBatchListLoading(true);
     repositoryRef.listReviewableBatches()
       .then((batches) => {
-        if (active) setReviewableBatches(batches);
+        if (active && requestGenerationRef.current === requestedGeneration) {
+          setReviewableBatches(batches);
+        }
       })
       .catch((listError) => {
-        if (active) setError(listError instanceof Error ? listError.message : "upload_batch_list_failed");
+        if (active && requestGenerationRef.current === requestedGeneration) {
+          setError(listError instanceof Error ? listError.message : "upload_batch_list_failed");
+        }
       })
       .finally(() => {
-        if (active) setBatchListLoading(false);
+        if (active && requestGenerationRef.current === requestedGeneration) {
+          setBatchListLoading(false);
+        }
       });
     return () => { active = false; };
   }, [repositoryRef]);
 
   const stage = async (file: File | undefined) => {
-    if (!file || busy) return;
-    requestGenerationRef.current += 1;
+    if (!file || busy || pageBusy) return;
+    const requestedGeneration = ++requestGenerationRef.current;
+    setBatchListLoading(false);
+    setReviewableBatches([]);
     setPageBusy(false);
     setBusy("stage");
     setError("");
@@ -195,12 +208,15 @@ export function UploadPage({
     setDetailStatus("");
     try {
       const nextReview = await repositoryRef.stageUpload(file);
+      if (requestGenerationRef.current !== requestedGeneration) return;
       setReview(nextReview);
       setApproval(initialApproval(nextReview));
     } catch (stageError) {
-      setError(stageError instanceof Error ? stageError.message : t("upload.stagingFailed"));
+      if (requestGenerationRef.current === requestedGeneration) {
+        setError(stageError instanceof Error ? stageError.message : t("upload.stagingFailed"));
+      }
     } finally {
-      setBusy(null);
+      if (requestGenerationRef.current === requestedGeneration) setBusy(null);
     }
   };
 
@@ -239,7 +255,8 @@ export function UploadPage({
 
   const openBatch = async (batchId: string) => {
     if (!repositoryRef.openUploadReview || busy || pageBusy) return;
-    requestGenerationRef.current += 1;
+    const requestedGeneration = ++requestGenerationRef.current;
+    setBatchListLoading(false);
     setPageBusy(true);
     setError("");
     setCommitMessage("");
@@ -249,12 +266,15 @@ export function UploadPage({
     setDetailStatus("");
     try {
       const nextReview = await repositoryRef.openUploadReview(batchId);
+      if (requestGenerationRef.current !== requestedGeneration) return;
       setReview(nextReview);
       setApproval(initialApproval(nextReview));
     } catch (openError) {
-      setError(openError instanceof Error ? openError.message : "upload_batch_review_failed");
+      if (requestGenerationRef.current === requestedGeneration) {
+        setError(openError instanceof Error ? openError.message : "upload_batch_review_failed");
+      }
     } finally {
-      setPageBusy(false);
+      if (requestGenerationRef.current === requestedGeneration) setPageBusy(false);
     }
   };
 
@@ -287,7 +307,7 @@ export function UploadPage({
   };
 
   const download = async () => {
-    if (busy) return;
+    if (busy || pageBusy) return;
     setBusy("download");
     setError("");
     try {
@@ -335,8 +355,8 @@ export function UploadPage({
       </ul>}
     </section>}
     <div className="upload-actions">
-      <button type="button" onClick={download} disabled={busy !== null}>{t("upload.downloadTemplate")}</button>
-      <label htmlFor="upload-workbook">{t("upload.workbook")} <input id="upload-workbook" type="file" accept=".xlsx" disabled={busy !== null} onChange={(event) => void stage(event.target.files?.[0])} /></label>
+      <button type="button" onClick={download} disabled={busy !== null || pageBusy}>{t("upload.downloadTemplate")}</button>
+      <label htmlFor="upload-workbook">{t("upload.workbook")} <input id="upload-workbook" type="file" accept=".xlsx" disabled={busy !== null || pageBusy} onChange={(event) => void stage(event.target.files?.[0])} /></label>
     </div>
     {busy === "stage" && <p role="status" aria-live="polite">{t("upload.validating")}</p>}
     {busy === "download" && <p role="status" aria-live="polite">{t("upload.preparing")}</p>}

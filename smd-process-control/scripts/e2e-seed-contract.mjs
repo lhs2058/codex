@@ -117,6 +117,25 @@ export function assertSeedEnvironment(environment, projectRoot = process.cwd()) 
   };
 }
 
+export async function runAfterSeedPreflight(loadSnapshot, write) {
+  const snapshot = await loadSnapshot();
+  if (!snapshot.reviewRpcAvailable || !snapshot.candidateTablesAvailable) {
+    throw new Error("Required legacy upload migrations are missing; reset the local database before seeding");
+  }
+  if (!snapshot.processId || !snapshot.legacyReasonId) {
+    throw new Error("Required AOI process or LEGACY_UNSPECIFIED reason is missing; reset the local database before seeding");
+  }
+  if (
+    snapshot.candidateNamespaceCount !== 0
+    || snapshot.candidateRowCount !== 0
+    || snapshot.uploadBatchCount !== 0
+    || snapshot.storageObjectCount !== 0
+  ) {
+    throw new Error("Legacy approval E2E namespace is dirty; reset the local database before seeding");
+  }
+  return write(snapshot);
+}
+
 const PRODUCTION_HEADERS = [
   "Production Date", "Shift", "Time Slot", "Line", "Model", "Process",
   "Input", "Actual", "OK", "NG", "Downtime Minutes", "Downtime Reason", "Note",

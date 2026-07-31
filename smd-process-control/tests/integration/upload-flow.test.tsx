@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type {
   MasterDataSnapshot,
@@ -1340,6 +1340,121 @@ describe("UploadPage", () => {
     expect(screen.getByLabelText("Replace duplicate records")).toBeEnabled();
   });
 
+  it("keeps the newer opened batch when an older open response resolves last", async () => {
+    let resolveFirst!: (review: LegacyUploadReview) => void;
+    let resolveSecond!: (review: LegacyUploadReview) => void;
+    const first = new Promise<LegacyUploadReview>((resolve) => { resolveFirst = resolve; });
+    const second = new Promise<LegacyUploadReview>((resolve) => { resolveSecond = resolve; });
+    const repository = {
+      stageUpload: vi.fn(),
+      listReviewableBatches: vi.fn().mockResolvedValue([
+        {
+          batchId: "batch-old",
+          sourceFileName: "old.xlsx",
+          sourceSha256: "a".repeat(64),
+          workbookKind: "production" as const,
+          status: "validated" as const,
+          createdAt: "2026-07-31T00:00:00.000Z",
+        },
+        {
+          batchId: "batch-new",
+          sourceFileName: "new.xlsx",
+          sourceSha256: "b".repeat(64),
+          workbookKind: "production" as const,
+          status: "validated" as const,
+          createdAt: "2026-07-31T00:01:00.000Z",
+        },
+      ]),
+      openUploadReview: vi.fn()
+        .mockReturnValueOnce(first)
+        .mockReturnValueOnce(second),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+    const oldButton = await screen.findByRole("button", { name: "Open staged workbook old.xlsx" });
+    const newButton = screen.getByRole("button", { name: "Open staged workbook new.xlsx" });
+    act(() => {
+      fireEvent.click(oldButton);
+      fireEvent.click(newButton);
+    });
+    resolveSecond(legacyReview({ batchId: "batch-new", sourceFileName: "new.xlsx" }));
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Source workbook" })).toHaveTextContent("new.xlsx");
+    });
+    resolveFirst(legacyReview({ batchId: "batch-old", sourceFileName: "old.xlsx" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "Source workbook" })).toHaveTextContent("new.xlsx");
+    });
+  });
+
+  it("does not let a stale review queue overwrite a newer staged workbook", async () => {
+    let resolveList!: (batches: Array<{
+      batchId: string;
+      sourceFileName: string;
+      sourceSha256: string;
+      workbookKind: "production";
+      status: "validated";
+      createdAt: string;
+    }>) => void;
+    const pendingList = new Promise<Parameters<typeof resolveList>[0]>((resolve) => { resolveList = resolve; });
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(legacyReview({
+        batchId: "batch-new",
+        sourceFileName: "newly-staged.xlsx",
+      })),
+      listReviewableBatches: vi.fn().mockReturnValue(pendingList),
+      openUploadReview: vi.fn(),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+    fireEvent.change(screen.getByLabelText("Workbook"), {
+      target: { files: [new File(["new"], "newly-staged.xlsx")] },
+    });
+    expect(await screen.findByText("newly-staged.xlsx")).toBeInTheDocument();
+    resolveList([{
+      batchId: "batch-old",
+      sourceFileName: "old.xlsx",
+      sourceSha256: "a".repeat(64),
+      workbookKind: "production",
+      status: "validated",
+      createdAt: "2026-07-31T00:00:00.000Z",
+    }]);
+
+    await waitFor(() => expect(screen.queryByRole("button", {
+      name: "Open staged workbook old.xlsx",
+    })).not.toBeInTheDocument());
+    expect(screen.getByRole("region", { name: "Source workbook" })).toHaveTextContent("newly-staged.xlsx");
+  });
+
+  it("blocks commit when a privileged review response reports truncated candidates", async () => {
+    const truncated = legacyReview({
+      masterCandidateCount: 101,
+      masterCandidates: [{
+        ...masterCandidate,
+        status: "existing",
+        approved: true,
+        currentName: "MODEL-1",
+      }],
+      standardTimeCandidates: [],
+      standardTimeCandidateCount: 0,
+    });
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(truncated),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+    fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
+
+    expect(await screen.findByRole("button", { name: "Commit upload" })).toBeDisabled();
+  });
+
   it("shows row diagnostics and disables commit when any invalid or unregistered row exists", async () => {
     const invalid = review({
       newCount: 0,
@@ -1578,10 +1693,11 @@ describe("UploadPage", () => {
     const input = screen.getByLabelText("Workbook");
     fireEvent.change(input, { target: { files: [file()] } });
     await screen.findByText("legacy-production.xlsx");
-    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    act(() => {
+      fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+      fireEvent.change(input, { target: { files: [new File(["second"], "second.xlsx")] } });
+    });
     await waitFor(() => expect(repository.loadDetailPage).toHaveBeenCalledWith("batch-1", 2, undefined));
-
-    fireEvent.change(input, { target: { files: [new File(["second"], "second.xlsx")] } });
     await screen.findByText("second.xlsx");
     resolveOldPage({
       page: 2,

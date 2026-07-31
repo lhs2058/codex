@@ -1,7 +1,7 @@
 import readXlsxFile, { readSheetNames } from "read-excel-file/node";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { parseStandardWorkbook } from "../../src/excel/adapters/standard-adapter";
 import { parseProductionWorkbook } from "../../src/excel/adapters/production-adapter";
 import type { WorkbookSheet } from "../../src/excel/contracts";
@@ -12,6 +12,7 @@ import {
   buildLegacyApprovalWorkbookBuffer,
   datedSeedIds,
   publicSeedManifest,
+  runAfterSeedPreflight,
 } from "../../scripts/e2e-seed-contract.mjs";
 
 const completeEnvironment = {
@@ -139,5 +140,62 @@ describe("local E2E seed contract", () => {
     expect(publicSeedManifest("2026-07-28", "process-a")).toEqual(
       publicSeedManifest("2026-07-28", "process-a"),
     );
+  });
+
+  it("fails before the first write when any required migration, master, candidate, batch, or storage prerequisite is dirty", async () => {
+    const clean = {
+      reviewRpcAvailable: true,
+      candidateTablesAvailable: true,
+      processId: "process-aoi",
+      legacyReasonId: "reason-legacy",
+      candidateNamespaceCount: 0,
+      candidateRowCount: 0,
+      uploadBatchCount: 0,
+      storageObjectCount: 0,
+    };
+    const write = vi.fn();
+
+    for (const [field, value] of [
+      ["reviewRpcAvailable", false],
+      ["candidateTablesAvailable", false],
+      ["processId", null],
+      ["legacyReasonId", null],
+      ["candidateNamespaceCount", 1],
+      ["candidateRowCount", 1],
+      ["uploadBatchCount", 1],
+      ["storageObjectCount", 1],
+    ] as const) {
+      await expect(runAfterSeedPreflight(
+        async () => ({ ...clean, [field]: value }),
+        write,
+      )).rejects.toThrow(/reset|migration|required/i);
+    }
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("starts writes only after every read-only preflight check passes", async () => {
+    const snapshot = {
+      reviewRpcAvailable: true,
+      candidateTablesAvailable: true,
+      processId: "process-aoi",
+      legacyReasonId: "reason-legacy",
+      candidateNamespaceCount: 0,
+      candidateRowCount: 0,
+      uploadBatchCount: 0,
+      storageObjectCount: 0,
+    };
+    const events: string[] = [];
+
+    await expect(runAfterSeedPreflight(
+      async () => {
+        events.push("preflight");
+        return snapshot;
+      },
+      async (resolved) => {
+        events.push(`write:${resolved.processId}`);
+        return "seeded";
+      },
+    )).resolves.toBe("seeded");
+    expect(events).toEqual(["preflight", "write:process-aoi"]);
   });
 });
