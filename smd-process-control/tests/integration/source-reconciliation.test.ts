@@ -86,12 +86,12 @@ const representatives: Representative[] = [
     contentHash: "f4cda2c1efeef78d",
     kind: "production",
     sourceSheet: "25.07",
-    sourceRow: 7,
+    sourceRow: 27,
     timeSlotCode: "A",
     productionDate: "2026-07-25",
     lineHash: "5907689dd92e",
     modelHash: "42365ea1c7b0",
-    quantities: { inputQty: 0, actualQty: 2970, okQty: 0, ngQty: 0 },
+    quantities: { inputQty: 0, actualQty: 1980, okQty: 0, ngQty: 0 },
   },
 ];
 
@@ -272,15 +272,41 @@ describe("preserved source workbook reconciliation", () => {
       counts[expected.kind] = result.rows.length;
       if (expected.kind === "production") {
         expect(result.diagnostics).toEqual([]);
-        expect(result.rows).toHaveLength(14_708);
+        expect(result.rows).toHaveLength(9_658);
+        expect(result.rows.reduce<Record<string, number>>((totals, detail) => ({
+          ...totals,
+          [detail.shiftCode]: (totals[detail.shiftCode] ?? 0) + 1,
+        }), {})).toEqual({
+          DAY: 4_953,
+          NIGHT: 4_705,
+        });
         expect(result.capacityEvidence.length).toBeGreaterThan(0);
         expect(result.capacityEvidence.filter(({ timeSlotCode }) =>
           !CAPACITY_TIME_SLOTS.has(timeSlotCode))).toEqual([]);
+        expect(result.capacityEvidence.filter(({ shiftCode }) =>
+          shiftCode !== "DAY" && shiftCode !== "NIGHT")).toEqual([]);
+        const nightCapacityEvidence = result.capacityEvidence.filter(({ shiftCode }) =>
+          shiftCode === "NIGHT");
+        expect(nightCapacityEvidence.length).toBeGreaterThan(0);
+        expect(nightCapacityEvidence.every(({ sourceSheet, productionDate }) => {
+          const sourceDate = sourceSheet.match(/^(\d{2})\.(\d{1,2})$/);
+          return sourceDate !== null
+            && productionDate === `2026-${sourceDate[2]!.padStart(2, "0")}-${sourceDate[1]}`;
+        })).toBe(true);
         const candidates = deriveLegacyCandidates(result, registeredMasters(result.rows));
         expect(candidates.standardTimeCandidates.length).toBeGreaterThan(0);
         expect(candidates.standardTimeCandidates.filter(({ processCode }) =>
           !PRODUCTION_PROCESS_CODES.has(processCode))).toEqual([]);
-        expect(review.newCount + review.errorCount).toBe(14_708);
+        expect(candidates.diagnostics.filter(({ code }) => code === "unknown-shift")).toEqual([]);
+        expect({
+          newCount: review.newCount,
+          conflictCount: review.conflictCount,
+          errorCount: review.errorCount,
+        }).toEqual({
+          newCount: 9_658,
+          conflictCount: 0,
+          errorCount: 0,
+        });
       } else {
         expect(review.rows.every((candidate) =>
           candidate.dimensions.production === null
@@ -294,7 +320,7 @@ describe("preserved source workbook reconciliation", () => {
       spi: 271,
       ict: 90,
       xray: 262,
-      production: 14_708,
+      production: 9_658,
     });
   }, 120_000);
 });

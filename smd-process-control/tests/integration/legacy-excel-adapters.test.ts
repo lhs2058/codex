@@ -192,6 +192,80 @@ describe("legacy Excel adapters", () => {
     expect(result.diagnostics).toEqual([]);
   });
 
+  it.each([
+    ["  cA nGÀY  ", "DAY"],
+    ["  CA ĐÊM  ", "NIGHT"],
+    ["ca ngay", "DAY"],
+    ["ca dem", "NIGHT"],
+  ] as const)("normalizes the preserved production shift alias %s to %s for details and CAPA", (alias, expectedShift) => {
+    const source = productionSheet(0, 2);
+    source.data[4]![3] = alias;
+    const normalized = parseProductionWorkbook([source]);
+
+    expect(normalized.rows).toHaveLength(5);
+    expect(normalized.rows.map(({ shiftCode, productionDate }) => ({ shiftCode, productionDate }))).toEqual(
+      Array.from({ length: 5 }, () => ({
+        shiftCode: expectedShift,
+        productionDate: "2026-07-25",
+      })),
+    );
+    expect(normalized.capacityEvidence.map(({ shiftCode, productionDate, timeSlotCode }) => ({
+      shiftCode,
+      productionDate,
+      timeSlotCode,
+    }))).toEqual([
+      { shiftCode: expectedShift, productionDate: "2026-07-25", timeSlotCode: "A" },
+      { shiftCode: expectedShift, productionDate: "2026-07-25", timeSlotCode: "B" },
+      { shiftCode: expectedShift, productionDate: "2026-07-25", timeSlotCode: "C" },
+      { shiftCode: expectedShift, productionDate: "2026-07-25", timeSlotCode: "D" },
+      { shiftCode: expectedShift, productionDate: "2026-07-25", timeSlotCode: "E" },
+    ]);
+  });
+
+  it("suppresses a Total aggregate section until the next recognized production shift", () => {
+    const source = productionSheet(0, 2);
+    const detail = source.data[4]!;
+    const total = [...detail];
+    total[3] = "Total";
+    total[5] = "MODEL-TOTAL";
+    const continuation = [...detail];
+    continuation[3] = null;
+    continuation[5] = "MODEL-TOTAL-CONTINUATION";
+    const unrelatedShift = [...detail];
+    unrelatedShift[3] = "Weekend";
+    unrelatedShift[5] = "MODEL-UNRELATED";
+    const resumedNight = [...detail];
+    resumedNight[3] = "Ca đêm";
+    resumedNight[5] = "MODEL-NIGHT";
+    source.data = [
+      ...source.data.slice(0, 4),
+      total,
+      continuation,
+      unrelatedShift,
+      resumedNight,
+    ];
+
+    const result = parseProductionWorkbook([source]);
+
+    expect(result.rows).toHaveLength(5);
+    expect(result.rows.every(({ modelCode, shiftCode, productionDate }) =>
+      modelCode === "MODEL-NIGHT"
+      && shiftCode === "NIGHT"
+      && productionDate === "2026-07-25")).toBe(true);
+    expect(result.capacityEvidence.map(({ modelCode, shiftCode, productionDate, timeSlotCode }) => ({
+      modelCode,
+      shiftCode,
+      productionDate,
+      timeSlotCode,
+    }))).toEqual([
+      { modelCode: "MODEL-NIGHT", shiftCode: "NIGHT", productionDate: "2026-07-25", timeSlotCode: "A" },
+      { modelCode: "MODEL-NIGHT", shiftCode: "NIGHT", productionDate: "2026-07-25", timeSlotCode: "B" },
+      { modelCode: "MODEL-NIGHT", shiftCode: "NIGHT", productionDate: "2026-07-25", timeSlotCode: "C" },
+      { modelCode: "MODEL-NIGHT", shiftCode: "NIGHT", productionDate: "2026-07-25", timeSlotCode: "D" },
+      { modelCode: "MODEL-NIGHT", shiftCode: "NIGHT", productionDate: "2026-07-25", timeSlotCode: "E" },
+    ]);
+  });
+
   it("maps positive legacy downtime without a reason to the registered review fallback", async () => {
     const result = parseProductionWorkbook(await readFixture("production-sample.xlsx"));
     const row = result.rows.find((candidate) => candidate.downtimeMinutes > 0);

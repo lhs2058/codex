@@ -23,7 +23,7 @@
 - The final master/ST/detail operation is one database transaction and rolls back completely on any failure.
 - Duplicate details default to skip; only an admin may explicitly replace them.
 - A completed batch is immutable, and a re-upload with the same SHA-256 identifies the completed batch instead of duplicating it.
-- Preserve source reconciliation counts: AOI 239, SPI 271, ICT 90, X-ray 262, production 14,708.
+- Preserve source reconciliation counts: AOI 239, SPI 271, ICT 90, X-ray 262, production detail 9,658 (DAY 4,953 + NIGHT 4,705). Exclude every `Total` aggregate section until the next recognized DAY/NIGHT shift without changing the source file or checksum.
 
 ---
 
@@ -403,7 +403,7 @@ expect(events).toEqual([
 ]);
 ```
 
-Assert the batch insert contains the lowercase 64-character SHA-256 and that a completed hash result returns the existing batch without another storage upload. Assert 14,708 rows still insert in chunks of at most 500. Assert `loadDetailPage(batchId, 2, "error")` calls offset `200`, limit `200`. Assert `commitUpload` calls `commit_upload_batch_with_masters` with the exact approval arrays.
+Assert the batch insert contains the lowercase 64-character SHA-256 and that a completed hash result returns the existing batch without another storage upload. Assert 9,658 production detail rows still insert in chunks of at most 500. Assert `loadDetailPage(batchId, 2, "error")` calls offset `200`, limit `200`. Assert `commitUpload` calls `commit_upload_batch_with_masters` with the exact approval arrays.
 
 - [ ] **Step 2: Run upload repository tests and confirm failure**
 
@@ -629,7 +629,7 @@ expect(counts).toEqual({
   spi: 271,
   ict: 90,
   xray: 262,
-  production: 14708,
+  production: 9658,
 });
 ```
 
@@ -796,7 +796,7 @@ git commit -m "docs: record legacy import release verification"
 - [ ] Daily quality stays without a time slot and defects/downtime stay linked.
 - [ ] Duplicate default is skip; replacement requires admin choice.
 - [ ] Completed batch/hash paths are idempotent and completed batches are immutable.
-- [ ] 14,708 production rows stage in chunks and render through 200-row server pages.
+- [ ] 9,658 production detail rows stage in chunks and render through 200-row server pages; all `Total` aggregate sections remain excluded.
 - [ ] Original files remain private and traceable by filename, SHA-256, kind, sheet, and row.
 - [ ] Database RLS, audit, rollback, and end-to-end tests pass.
 - [ ] Vinext/Sites and Vite/Vercel builds pass and production remains publicly reachable without ChatGPT authentication.

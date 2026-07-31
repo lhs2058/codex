@@ -7,6 +7,14 @@ const slots = ["A", "B", "C", "D", "E"] as const;
 const text = (value: unknown) => String(value ?? "").trim();
 const folded = (value: unknown) => text(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
+function normalizeProductionShift(value: unknown): string {
+  const original = text(value);
+  const alias = folded(original).replace(/đ/g, "d").replace(/\s+/g, " ").trim();
+  if (alias === "day" || alias === "ca ngay") return "DAY";
+  if (alias === "night" || alias === "ca dem") return "NIGHT";
+  return original;
+}
+
 export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseResult {
   const rows: ImportParseResult["rows"] = [];
   const diagnostics: ImportParseResult["diagnostics"] = [];
@@ -28,10 +36,21 @@ export function parseProductionWorkbook(sheets: WorkbookSheet[]): ImportParseRes
     }
     let inheritedLine: unknown = null;
     let inheritedShift = "DAY";
+    let aggregateShiftSection = false;
     for (let i = layout.dataStartRow; i < sheet.data.length; i += 1) {
       const row = sheet.data[i] ?? [];
       const rawShift = layout.shiftColumn == null ? "" : text(row[layout.shiftColumn]);
-      if (rawShift && !/total/i.test(rawShift)) inheritedShift = rawShift;
+      if (folded(rawShift) === "total") {
+        aggregateShiftSection = true;
+        continue;
+      }
+      if (rawShift) {
+        const normalizedShift = normalizeProductionShift(rawShift);
+        const recognizedShift = normalizedShift === "DAY" || normalizedShift === "NIGHT";
+        if (recognizedShift) aggregateShiftSection = false;
+        if (!aggregateShiftSection) inheritedShift = normalizedShift;
+      }
+      if (aggregateShiftSection) continue;
       const rawLine = row[layout.lineColumn];
       const model = row[layout.modelColumn];
       if (/total/i.test(text(rawLine))) {

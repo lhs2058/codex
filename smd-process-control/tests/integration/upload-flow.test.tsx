@@ -984,7 +984,7 @@ describe("upload repository", () => {
       })),
       rpc: candidateRpc(),
     } as unknown as UploadRepositoryClient;
-    const rows = Array.from({ length: 14_708 }, (_, index) => ({
+    const rows = Array.from({ length: 9_658 }, (_, index) => ({
       ...parsedRow,
       sourceRow: index + 2,
       productionDate: `2026-${String(Math.floor(index / 28) % 12 + 1).padStart(2, "0")}-${String(index % 28 + 1).padStart(2, "0")}`,
@@ -1002,10 +1002,10 @@ describe("upload repository", () => {
     await repository.stageUpload(file());
 
     expect(prefetchExisting).toHaveBeenCalledTimes(1);
-    expect(prefetchExisting.mock.calls[0]?.[0]).toHaveLength(14_708);
-    expect(insertedRows).toHaveBeenCalledTimes(30);
+    expect(prefetchExisting.mock.calls[0]?.[0]).toHaveLength(9_658);
+    expect(insertedRows).toHaveBeenCalledTimes(20);
     expect(insertedRows.mock.calls.map(([chunk]) => chunk.length)).toEqual([
-      ...Array.from({ length: 29 }, () => 500), 208,
+      ...Array.from({ length: 19 }, () => 500), 158,
     ]);
   });
 });
