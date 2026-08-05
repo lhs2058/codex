@@ -98,6 +98,21 @@ describe("legacy Excel adapters", () => {
     expect(parseXrayWorkbook([{ sheet: "Xray", data: [["wrong"]] }]).diagnostics).toContainEqual(expect.objectContaining({ field: "headers" }));
   });
 
+  it("keeps the default shift when Xray aggregate labels occupy the shift column", () => {
+    const result = parseXrayWorkbook([{ sheet: "Xray", data: [
+      [null, null, null, "Data Theo Dõi Hiệu Suất Máy XRAY công đoạn SMD"],
+      [null, "06", "Ngày", "Ca", "Công Đoạn", "Hạng Mục", "Time", "Input", "Ouput"],
+      [null, "SVM", new Date(2026, 6, 1), "TTL", null, "SVM", null, 0, 0],
+      [null, "PE-35", null, null, null, "PE-35", null, 10, 9],
+      [null, "XRAY-1", null, "XRAY-1", null, null, null, 10, 9],
+    ] }]);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.map(({ modelCode }) => modelCode)).toEqual(["SVM", "PE-35"]);
+    expect(result.rows.every(({ shiftCode }) => shiftCode === "DAY")).toBe(true);
+  });
+
   it("rejects legacy ICT and Xray rows whose OK quantity exceeds input", () => {
     const row = [null, null, "27.07.2026", "DAY", null, "MODEL-A", null, 1, 2];
     const ict = parseIctWorkbook([{

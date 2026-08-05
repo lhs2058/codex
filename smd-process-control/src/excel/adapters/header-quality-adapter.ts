@@ -21,6 +21,12 @@ const column = (row: unknown[], predicate: (value: string) => boolean) =>
 const productionDate = (value: unknown) => {
   try { return normalizeProductionDate(value, 2026); } catch { return null; }
 };
+const recognizedShift = (value: unknown): "DAY" | "NIGHT" | null => {
+  const alias = label(value);
+  if (alias === "day" || alias === "ca ngay") return "DAY";
+  if (alias === "night" || alias === "ca dem") return "NIGHT";
+  return null;
+};
 
 export function parseHeaderQualityWorkbook(
   sheets: WorkbookSheet[],
@@ -91,9 +97,15 @@ export function parseHeaderQualityWorkbook(
         lastModel = null;
         continue;
       }
-      const shiftBoundary = boundary(source[shiftColumn]);
+      const shiftValue = shiftColumn >= 0 ? source[shiftColumn] : null;
+      const explicitShift = recognizedShift(shiftValue);
+      const shiftBoundary = boundary(shiftValue);
       if (boundary(source[dateColumn]) || (shiftBoundary && !present(source[modelColumn]))) {
         lastDate = null;
+        lastModel = null;
+        continue;
+      }
+      if (present(shiftValue) && !explicitShift && !shiftBoundary && !present(source[modelColumn])) {
         lastModel = null;
         continue;
       }
@@ -106,7 +118,7 @@ export function parseHeaderQualityWorkbook(
         lastDate = explicitDate;
         hasSeenDate = true;
       }
-      if (shiftColumn >= 0 && present(source[shiftColumn])) lastShift = source[shiftColumn];
+      if (explicitShift) lastShift = explicitShift;
       if (lineColumn >= 0 && present(source[lineColumn])) lastLine = source[lineColumn];
       if (present(source[modelColumn])) lastModel = source[modelColumn];
       if (missingCount(source[inputColumn]) || missingCount(source[okColumn])) continue;

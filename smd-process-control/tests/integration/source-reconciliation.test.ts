@@ -205,8 +205,9 @@ describe("preserved source workbook reconciliation", () => {
       "Set SMD_SOURCE_WORKBOOK_DIR to the read-only directory containing the five original workbooks.",
     ).toBeTruthy();
 
-    const entries = await fs.readdir(sourceDirectory!);
-    expect(entries.filter((name) => name.toLowerCase().endsWith(".xlsx"))).toHaveLength(5);
+    const entries = (await fs.readdir(sourceDirectory!)).filter((name) =>
+      name.toLowerCase().endsWith(".xlsx") && !name.startsWith("~$"));
+    expect(entries).toHaveLength(5);
     const byHash = new Map(entries.map((name) => [hash(name), path.join(sourceDirectory!, name)]));
     const counts: Partial<Record<Representative["kind"], number>> = {};
 
@@ -236,6 +237,7 @@ describe("preserved source workbook reconciliation", () => {
       if (expected.kind !== "production") {
         expect(dailyQualityRows.length).toBeGreaterThan(0);
         expect(dailyQualityRows.every(({ timeSlotCode }) => timeSlotCode === null)).toBe(true);
+        expect(result.rows.every(({ shiftCode }) => shiftCode === "DAY" || shiftCode === "NIGHT")).toBe(true);
       }
       const row = result.rows.find((candidate) =>
         candidate.sourceSheet === expected.sourceSheet
@@ -311,6 +313,10 @@ describe("preserved source workbook reconciliation", () => {
         expect(review.rows.every((candidate) =>
           candidate.dimensions.production === null
           && candidate.actualQty === 0)).toBe(true);
+        if (expected.kind === "xray") expect(
+          review.errorCount,
+          JSON.stringify(review.diagnostics.slice(0, 10)),
+        ).toBe(0);
       }
       const bytesAfter = await fs.readFile(sourceFile!);
       expect(crypto.createHash("sha256").update(bytesAfter).digest("hex").slice(0, 16)).toBe(expected.contentHash);
@@ -319,7 +325,7 @@ describe("preserved source workbook reconciliation", () => {
       aoi: 239,
       spi: 271,
       ict: 90,
-      xray: 262,
+      xray: 200,
       production: 9_658,
     });
   }, 120_000);
