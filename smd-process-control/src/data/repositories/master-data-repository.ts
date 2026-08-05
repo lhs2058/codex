@@ -197,6 +197,11 @@ export function validateStandardTimeOverlap(records: StandardTime[], candidate: 
 function rows<T>(result: { data: T; error: { message?: string; code?: string } | null }): T { if (result.error) throw mapError(result.error); return result.data; }
 const active = (query: Query) => query.is("deleted_at", null).eq("is_active", true);
 
+function minuteTime(value: unknown): string {
+  const time = String(value);
+  return /^\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(time) ? time.slice(0, 5) : time;
+}
+
 function mapSnapshot(payload: HistoricalMasterDataPayload): MasterDataSnapshot {
   const mapMaster = (values: unknown[]) => values.map((value: any) => ({
     id: value.id,
@@ -214,8 +219,8 @@ function mapSnapshot(payload: HistoricalMasterDataPayload): MasterDataSnapshot {
       id: value.id,
       shiftId: value.shift_id,
       code: value.code,
-      startsAt: value.starts_at,
-      endsAt: value.ends_at,
+      startsAt: minuteTime(value.starts_at),
+      endsAt: minuteTime(value.ends_at),
       endDayOffset: value.end_day_offset,
       sequence: value.sequence,
       active: value.is_active,
@@ -250,8 +255,8 @@ function mapAdminOverview(payload: any): AdminOverview {
     id: String(value.id),
     shiftId: String(property(value, "shiftId", "shift_id")),
     code: String(value.code),
-    startsAt: String(property(value, "startsAt", "starts_at")),
-    endsAt: String(property(value, "endsAt", "ends_at")),
+    startsAt: minuteTime(property(value, "startsAt", "starts_at")),
+    endsAt: minuteTime(property(value, "endsAt", "ends_at")),
     endDayOffset: Number(property(value, "endDayOffset", "end_day_offset")) as 0 | 1,
     sequence: Number(value.sequence),
     active: Boolean(property(value, "active", "is_active")) && property(value, "deletedAt", "deleted_at") == null,

@@ -3,11 +3,17 @@ import { useAuthState } from "../../auth/AuthProvider";
 import { createMasterDataRepository, type MasterDataRepository } from "../../data/repositories/master-data-repository";
 import {
   createUploadRepository,
+  type CandidateEvidenceType,
   type LegacyUploadReview,
   type UploadApproval,
   type UploadRepository,
 } from "../../data/repositories/upload-repository";
-import type { AppRole, UploadReview } from "../../domain/types";
+import type {
+  AppRole,
+  UploadMasterCandidate,
+  UploadReview,
+  UploadStandardTimeCandidate,
+} from "../../domain/types";
 import { downloadStandardTemplate } from "../../excel/template";
 import { useI18n, type TranslationKey } from "../../i18n";
 import { UploadMasterReview } from "./UploadMasterReview";
@@ -44,6 +50,7 @@ const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.workbookKind": "Workbook kind",
   "upload.sourceHash": "File hash (SHA-256)",
   "upload.duplicateCompleted": "This workbook was already completed.",
+  "upload.incompleteCandidateReview": "Candidate or evidence data exceeds the safe review limit. This batch cannot be committed.",
   "upload.masterData": "Master data",
   "upload.masterStatusCounts": "Master status counts",
   "upload.existing": "Existing",
@@ -95,6 +102,29 @@ function initialApproval(review: UploadReview): UploadApproval {
 
 function candidatesResolved(review: UploadReview, approval: UploadApproval): boolean {
   if (!isLegacyReview(review)) return true;
+  if (candidateReviewIncomplete(review)) return false;
+  return candidateApprovalsResolved(review, approval);
+}
+
+function candidateReviewIncomplete(review: LegacyUploadReview): boolean {
+  return review.candidatePayloadTruncated
+    || review.candidatePayloadOversized
+    || review.candidateNestedContentTruncated
+    || review.masterCandidateCount !== review.masterCandidates.length
+    || review.standardTimeCandidateCount !== review.standardTimeCandidates.length
+    || review.masterCandidates.some((candidate) =>
+      candidate.payloadOversized
+      || candidate.sourceElementsOversized
+      || candidate.messageElementsOversized
+    )
+    || review.standardTimeCandidates.some((candidate) =>
+      candidate.payloadOversized
+      || candidate.messageElementsOversized
+      || candidate.observationElementsOversized
+    );
+}
+
+function candidateApprovalsResolved(review: LegacyUploadReview, approval: UploadApproval): boolean {
   if (
     review.masterCandidateCount !== review.masterCandidates.length
     || review.standardTimeCandidateCount !== review.standardTimeCandidates.length
@@ -165,6 +195,7 @@ export function UploadPage({
   const [replaceConflicts, setReplaceConflicts] = useState(false);
   const [detailStatus, setDetailStatus] = useState("");
   const [pageBusy, setPageBusy] = useState(false);
+  const [evidenceBusyKey, setEvidenceBusyKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<"stage" | "commit" | "download" | null>(null);
   const [error, setError] = useState("");
   const [commitMessage, setCommitMessage] = useState("");
@@ -199,6 +230,7 @@ export function UploadPage({
     setBatchListLoading(false);
     setReviewableBatches([]);
     setPageBusy(false);
+    setEvidenceBusyKey(null);
     setBusy("stage");
     setError("");
     setCommitMessage("");
@@ -258,6 +290,7 @@ export function UploadPage({
     const requestedGeneration = ++requestGenerationRef.current;
     setBatchListLoading(false);
     setPageBusy(true);
+    setEvidenceBusyKey(null);
     setError("");
     setCommitMessage("");
     setReview(null);
@@ -282,6 +315,7 @@ export function UploadPage({
     if (
       !review
       || busy
+      || evidenceBusyKey
       || review.errorCount > 0
       || !candidatesResolved(review, approval)
       || (review.conflictCount > 0 && !(currentRole === "admin" && replaceConflicts))
@@ -306,6 +340,103 @@ export function UploadPage({
     }
   };
 
+  const loadCandidateEvidence = async (
+    candidateType: "master" | "standard_time",
+    candidateKey: string,
+    evidenceType: CandidateEvidenceType,
+    offset: number,
+  ) => {
+    if (!review || evidenceBusyKey || !repositoryRef.loadCandidateEvidencePage) return;
+    const requestedBatchId = review.batchId;
+    const requestedGeneration = requestGenerationRef.current;
+    const busyKey = `${candidateKey}|${evidenceType}`;
+    setEvidenceBusyKey(busyKey);
+    setError("");
+    try {
+      const page = await repositoryRef.loadCandidateEvidencePage(
+        requestedBatchId,
+        candidateType,
+        candidateKey,
+        evidenceType,
+        offset,
+      );
+      if (requestGenerationRef.current !== requestedGeneration) return;
+      setReview((current) => {
+        if (!current
+          || current.batchId !== requestedBatchId
+          || !isLegacyReview(current)) return current;
+        if (candidateType === "master") {
+          return {
+            ...current,
+            masterCandidates: current.masterCandidates.map((candidate) => {
+              if (candidate.key !== candidateKey) return candidate;
+              if (evidenceType === "sources") {
+                const sources = [
+                  ...candidate.sources,
+                  ...(page.items as UploadMasterCandidate["sources"]),
+                ];
+                return {
+                  ...candidate,
+                  sources,
+                  sourceTotal: page.total,
+                  sourcesTruncated: sources.length < page.total,
+                };
+              }
+              const messages = [
+                ...candidate.messages,
+                ...(page.items as string[]),
+              ];
+              return {
+                ...candidate,
+                messages,
+                messageTotal: page.total,
+                messagesTruncated: messages.length < page.total,
+              };
+            }),
+          };
+        }
+        return {
+          ...current,
+          standardTimeCandidates: current.standardTimeCandidates.map((candidate) => {
+            if (candidate.key !== candidateKey) return candidate;
+            if (evidenceType === "observations") {
+              const observations = [
+                ...candidate.observations,
+                ...(page.items as UploadStandardTimeCandidate["observations"]),
+              ];
+              return {
+                ...candidate,
+                observations,
+                observationTotal: page.total,
+                observationsTruncated: observations.length < page.total,
+              };
+            }
+            const messages = [
+              ...candidate.messages,
+              ...(page.items as string[]),
+            ];
+            return {
+              ...candidate,
+              messages,
+              messageTotal: page.total,
+              messagesTruncated: messages.length < page.total,
+            };
+          }),
+        };
+      });
+    } catch (evidenceError) {
+      if (requestGenerationRef.current === requestedGeneration) {
+        setError(evidenceError instanceof Error
+          ? evidenceError.message
+          : "upload_candidate_evidence_failed");
+      }
+    } finally {
+      if (requestGenerationRef.current === requestedGeneration) {
+        setEvidenceBusyKey(null);
+      }
+    }
+  };
+
   const download = async () => {
     if (busy || pageBusy) return;
     setBusy("download");
@@ -325,6 +456,7 @@ export function UploadPage({
   const commitDisabled = !review
     || busy !== null
     || pageBusy
+    || evidenceBusyKey !== null
     || review.errorCount > 0
     || !candidatesResolved(review, approval)
     || (adminApprovalRequired && currentRole !== "admin")
@@ -370,6 +502,8 @@ export function UploadPage({
         </dl>
         {review.duplicateCompletedBatch && <p role="status">{t("upload.duplicateCompleted")}</p>}
       </section>}
+      {isLegacyReview(review) && candidateReviewIncomplete(review)
+        && <p role="alert">{t("upload.incompleteCandidateReview")}</p>}
       <section className="upload-summary" aria-label={t("upload.summary")}>
         <p>{t("upload.new")}: {review.newCount}</p>
         <p>{t("upload.duplicates")}: {review.conflictCount}</p>
@@ -390,12 +524,30 @@ export function UploadPage({
             role={currentRole}
             approvals={approval.masterCandidates}
             onChange={(masterCandidates) => setApproval((current) => ({ ...current, masterCandidates }))}
+            evidenceBusyKey={evidenceBusyKey}
+            onLoadMore={(candidate, evidenceType) => void loadCandidateEvidence(
+              "master",
+              candidate.key,
+              evidenceType,
+              evidenceType === "sources"
+                ? candidate.sources.length
+                : candidate.messages.length,
+            )}
           />
           <UploadStandardTimeReview
             candidates={review.standardTimeCandidates}
             role={currentRole}
             approvals={approval.standardTimeCandidates}
             onChange={(standardTimeCandidates) => setApproval((current) => ({ ...current, standardTimeCandidates }))}
+            evidenceBusyKey={evidenceBusyKey}
+            onLoadMore={(candidate, evidenceType) => void loadCandidateEvidence(
+              "standard_time",
+              candidate.key,
+              evidenceType,
+              evidenceType === "observations"
+                ? candidate.observations.length
+                : candidate.messages.length,
+            )}
           />
         </fieldset>
       </>}

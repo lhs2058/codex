@@ -13,6 +13,9 @@ export const completeCandidateReview = {
   workbookKind: "production",
   masterCandidates: [],
   standardTimeCandidates: [],
+  candidatePayloadTruncated: false,
+  candidatePayloadOversized: false,
+  candidateNestedContentTruncated: false,
   detailTotal: 0,
   detailPage: 1,
 } satisfies LegacyUploadReview;

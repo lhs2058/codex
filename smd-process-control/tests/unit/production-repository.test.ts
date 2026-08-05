@@ -10,7 +10,7 @@ describe("production repository", () => {
     expect(rpc).toHaveBeenCalledWith("save_production_record", { payload: { production_date: "2026-07-28", shift_id: "s", time_slot_id: "t", line_id: "l", model_id: "m", process_id: "p", input_qty: 10, actual_qty: 9, ok_qty: 8, ng_qty: 1, note: "note", downtime: [{ reason_id: "d", minutes: 3, note: "pause" }] }, expected_version: 0 });
   });
   it("normalizes RPC error codes for form conflict handling", async () => {
-    await expect(createProductionRepository({ rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "40001", message: "conflict" } }) }).saveProductionRecord(draft, 0)).rejects.toMatchObject({ code: "40001" });
+    await expect(createProductionRepository({ rpc: vi.fn().mockResolvedValue({ data: null, error: { code: "PT409", message: "record_version_conflict" } }) }).saveProductionRecord(draft, 0)).rejects.toMatchObject({ code: "40001" });
   });
   it("includes the immutable record ID only for an existing-record edit", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: "record-id", error: null });

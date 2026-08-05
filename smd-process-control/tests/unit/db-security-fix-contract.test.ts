@@ -149,8 +149,8 @@ describe("final database and security migration contracts", () => {
 
     expect(sql).toMatch(/create function public\.list_reviewable_upload_batches\(\)/i);
     expect(sql).toMatch(/create function public\.get_upload_batch_review\(\s*p_batch_id uuid\s*\)/i);
-    expect(sql.match(/security definer/gi)).toHaveLength(2);
-    expect(sql.match(/set search_path = ''/gi)).toHaveLength(2);
+    expect(sql).toMatch(/create function public\.list_reviewable_upload_batches\(\)[\s\S]*?security definer[\s\S]*?set search_path = ''/i);
+    expect(sql).toMatch(/create function public\.get_upload_batch_review\(\s*p_batch_id uuid\s*\)[\s\S]*?security definer[\s\S]*?set search_path = ''/i);
     expect(sql).toMatch(/from private\.current_profile\(\)/i);
     expect(sql).toMatch(/profile_is_active/i);
     expect(sql).toMatch(/app_role in \('viewer', 'admin'\)/i);
@@ -177,6 +177,85 @@ describe("final database and security migration contracts", () => {
     expect(sql).toMatch(/'candidateEvidenceLimit', evidence_payload_limit/i);
     expect(sql).toMatch(/'masterCandidatesTruncated', master_candidate_count > candidate_payload_limit/i);
     expect(sql).toMatch(/'standardTimeCandidatesTruncated', standard_time_candidate_count > candidate_payload_limit/i);
+  });
+
+  it("rejects oversized staged JSON and blocks server-side commit when any review content is incomplete", () => {
+    const sql = readMigration("20260731010321_staged_upload_review.sql");
+
+    expect(sql).toMatch(/create function private\.legacy_master_candidate_payload_is_safe\(p_candidate jsonb\)/i);
+    expect(sql).toMatch(/create function private\.legacy_standard_time_candidate_payload_is_safe\(p_candidate jsonb\)/i);
+    expect(sql.match(/pg_column_size\(p_candidate\)\s*>\s*262144/gi)).toHaveLength(2);
+    expect(sql).toMatch(/jsonb_object_keys\(p_candidate\)[\s\S]*allowed_key/i);
+    expect(sql).toMatch(/jsonb_array_elements\(p_candidate -> 'sources'\)[\s\S]*pg_column_size\(source\.value\)\s*>\s*1024/i);
+    expect(sql).toMatch(/jsonb_array_elements\(p_candidate -> 'observations'\)[\s\S]*pg_column_size\(observation\.value\)\s*>\s*1024/i);
+    expect(sql).toMatch(/alter function public\.stage_upload_candidates\(uuid, jsonb, jsonb\)\s+set schema private/i);
+    expect(sql).toMatch(/create function public\.stage_upload_candidates\([\s\S]*private\.legacy_master_candidate_payload_is_safe/i);
+    expect(sql).toMatch(/message = 'candidate_payload_oversized'/i);
+    expect(sql).toMatch(/alter function public\.commit_upload_batch_with_masters\([\s\S]*set schema private/i);
+    expect(sql).toMatch(/create function public\.commit_upload_batch_with_masters\([\s\S]*message = 'upload_candidate_review_incomplete'/i);
+    expect(sql).toMatch(/'candidatePayloadOversized'/i);
+    expect(sql).toMatch(/'candidateNestedContentTruncated'/i);
+    expect(sql).toMatch(/'sourceElementsOversized'/i);
+    expect(sql).toMatch(/'messageElementsOversized'/i);
+    expect(sql).toMatch(/'observationElementsOversized'/i);
+  });
+
+  it("range-checks numeric JSON before projection, pages complete evidence, and guards both commit entry points", () => {
+    const sql = readMigration("20260731010321_staged_upload_review.sql");
+
+    expect(sql).toMatch(/create function private\.legacy_jsonb_number_is_safe\(/i);
+    expect(sql).toMatch(/jsonb_path_exists\([\s\S]*?\)::numeric[\s\S]*?scale\(/i);
+    expect(sql.match(/pg_column_size\(p_candidate\)\s*>\s*262144/gi)).toHaveLength(2);
+    expect(sql).toMatch(/jsonb_array_length\(p_candidate -> 'sources'\) > 500/i);
+    expect(sql).toMatch(/jsonb_array_length\(p_candidate -> 'observations'\) > 500/i);
+    expect(sql.match(/jsonb_array_length\(p_candidate -> 'messages'\) > 100/gi)).toHaveLength(2);
+    expect(sql).toMatch(/create function public\.get_upload_candidate_evidence\(/i);
+    expect(sql).toMatch(/least\(greatest\(coalesce\(p_limit, 20\), 1\), 50\)/i);
+    expect(sql).toMatch(/item\.ordinality <= safe_offset::bigint \+ safe_limit/i);
+    expect(sql).toMatch(/create function private\.legacy_upload_candidate_review_is_complete\(\s*p_batch_id uuid\s*\)/i);
+    expect(sql).toMatch(/alter function public\.commit_upload_batch\(uuid, boolean\)\s+set schema private/i);
+    expect(sql).toMatch(/private\.commit_upload_batch_existing_validated\(/i);
+    expect(sql.match(/not private\.legacy_upload_candidate_review_is_complete\(p_batch_id\)/gi)).toHaveLength(2);
+    expect(sql).not.toMatch(/jsonb_array_length\(p_candidate -> 'sources'\) > 20/i);
+    expect(sql).not.toMatch(/jsonb_array_length\(p_candidate -> 'observations'\) > 20/i);
+  });
+
+  it("preserves commit authorization, lock, status, and idempotency ordering before completeness checks", () => {
+    const sql = readMigration("20260731010321_staged_upload_review.sql");
+    const zeroApproval = sql.slice(
+      sql.indexOf("create function public.commit_upload_batch("),
+      sql.indexOf("revoke all on function public.commit_upload_batch(uuid, boolean)"),
+    ).toLowerCase();
+    const masterAware = sql.slice(
+      sql.indexOf("create function public.commit_upload_batch_with_masters("),
+      sql.indexOf("revoke all on function public.commit_upload_batch_with_masters("),
+    ).toLowerCase();
+
+    expect(zeroApproval.indexOf("from private.current_profile()")).toBeGreaterThan(-1);
+    expect(zeroApproval.indexOf("for update")).toBeGreaterThan(zeroApproval.indexOf("from private.current_profile()"));
+    expect(zeroApproval.indexOf("upload_candidates_require_admin")).toBeGreaterThan(zeroApproval.indexOf("for update"));
+    expect(zeroApproval.indexOf("return batch_commit_result")).toBeGreaterThan(
+      zeroApproval.indexOf("upload_candidates_require_admin"),
+    );
+    expect(zeroApproval.indexOf("upload_batch_not_committable")).toBeGreaterThan(
+      zeroApproval.indexOf("return batch_commit_result"),
+    );
+    expect(zeroApproval.indexOf("legacy_upload_candidate_review_is_complete")).toBeGreaterThan(
+      zeroApproval.indexOf("upload_batch_not_committable"),
+    );
+    expect(zeroApproval.indexOf("commit_upload_batch_existing_validated")).toBeGreaterThan(
+      zeroApproval.indexOf("legacy_upload_candidate_review_is_complete"),
+    );
+
+    expect(masterAware.indexOf("admin_required")).toBeGreaterThan(-1);
+    expect(masterAware.indexOf("for update")).toBeGreaterThan(masterAware.indexOf("admin_required"));
+    expect(masterAware.indexOf("return batch.commit_result")).toBeGreaterThan(masterAware.indexOf("for update"));
+    expect(masterAware.indexOf("upload_batch_not_committable")).toBeGreaterThan(
+      masterAware.indexOf("return batch.commit_result"),
+    );
+    expect(masterAware.indexOf("legacy_upload_candidate_review_is_complete")).toBeGreaterThan(
+      masterAware.indexOf("upload_batch_not_committable"),
+    );
   });
 
   it("rejects inactive manual dimensions and exposes hardened optimistic admin RPCs only to intended roles", () => {

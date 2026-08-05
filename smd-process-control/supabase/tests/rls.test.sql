@@ -177,7 +177,7 @@ select throws_ok(
       'model_id', '00000000-0000-0000-0000-000000000201',
       'process_id', (select id from public.processes where code = 'SPI'),
       'input_qty', 1, 'actual_qty', 1), null)$$,
-  '40001', 'record_version_conflict', 'NULL expected version is rejected for create'
+  'PT409', 'record_version_conflict', 'NULL expected version is rejected for create'
 );
 select throws_ok(
   $$select public.save_production_record(jsonb_build_object(

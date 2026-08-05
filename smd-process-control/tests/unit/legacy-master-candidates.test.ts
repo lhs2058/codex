@@ -43,6 +43,19 @@ function parsed(overrides: Partial<ImportParseResult> = {}): ImportParseResult {
 }
 
 describe("legacy master candidate derivation", () => {
+  it("keeps all source references when a legitimate candidate appears in more than twenty rows", () => {
+    const rows = Array.from({ length: 21 }, (_, index) => ({
+      ...parsed().rows[0]!,
+      sourceRow: index + 8,
+      productionDate: `2026-07-${String(index + 1).padStart(2, "0")}`,
+    }));
+
+    const result = deriveLegacyCandidates(parsed({ rows, capacityEvidence: [] }), emptyMaster());
+
+    expect(result.masterCandidates.find((candidate) => candidate.key === "model|MODEL-1")?.sources)
+      .toHaveLength(21);
+  });
+
   it("proposes missing models, lines, shifts, and approved time slots with source references", () => {
     const result = deriveLegacyCandidates(parsed(), emptyMaster());
 
@@ -80,6 +93,36 @@ describe("legacy master candidate derivation", () => {
       expect.objectContaining({ entity: "downtime_reason", code: "LEGACY_UNSPECIFIED", status: "new" }),
     ]));
     expect(deriveLegacyCandidates(withReason, emptyMaster()).masterCandidates.some((candidate) => candidate.code === "LEGACY_UNSPECIFIED")).toBe(false);
+  });
+
+  it("reuses the canonical name of an active legacy fallback downtime reason", () => {
+    const master = emptyMaster();
+    master.downtimeReasons = [{
+      id: "legacy-reason",
+      code: "LEGACY_UNSPECIFIED",
+      name: "Legacy / unspecified",
+      active: true,
+    }];
+    const source = parsed({
+      rows: [{
+        ...parsed().rows[0]!,
+        downtimeMinutes: 3,
+        downtimeReasonCode: null,
+      }],
+    });
+
+    expect(deriveLegacyCandidates(source, master).masterCandidates).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          entity: "downtime_reason",
+          code: "LEGACY_UNSPECIFIED",
+          proposedName: "Legacy / unspecified",
+          status: "existing",
+          approved: true,
+          conflictReason: null,
+        }),
+      ]),
+    );
   });
 
   it("keeps matching active master records unchanged and exposes the canonical name for a reusable name conflict", () => {
@@ -163,6 +206,18 @@ describe("legacy master candidate derivation", () => {
 });
 
 describe("legacy standard-time candidates", () => {
+  it("keeps all observations when a legitimate ST candidate has more than twenty CAPA samples", () => {
+    const capacityEvidence = Array.from({ length: 21 }, (_, index) => ({
+      ...parsed().capacityEvidence[0]!,
+      sourceRow: index + 8,
+      productionDate: `2026-07-${String(index + 1).padStart(2, "0")}`,
+    }));
+
+    const result = deriveLegacyCandidates(parsed({ capacityEvidence }), emptyMaster());
+
+    expect(result.standardTimeCandidates[0]?.observations).toHaveLength(21);
+  });
+
   it("requires the complete candidate-review identity and paging contract", () => {
     expect(candidateReviewFixture.detailPage).toBe(1);
   });
@@ -179,7 +234,7 @@ describe("legacy standard-time candidates", () => {
     expect(plannedSeconds("NIGHT", "B")).toBe(12_600);
   });
 
-  it("uses CAPA evidence to propose a three-decimal median and its earliest effective date", () => {
+  it("uses CAPA evidence to propose a six-decimal median and its earliest effective date", () => {
     const result = deriveLegacyCandidates(parsed({
       capacityEvidence: [
         { sourceSheet: "Production", sourceRow: 8, productionDate: "2026-07-29", shiftCode: "DAY", timeSlotCode: "A", lineCode: "AOI-1", modelCode: "MODEL-1", processCode: "AOI", capacityQty: 720 },
@@ -226,6 +281,48 @@ describe("legacy standard-time candidates", () => {
     expect(result.standardTimeCandidates).toEqual([expect.objectContaining({
       status: "conflict", minimum: 10, median: 10, maximum: 10.5004, proposedSecondsPerUnit: null,
       observations: expect.arrayContaining([expect.objectContaining({ secondsPerUnit: 10.5004 })]),
+    })]);
+  });
+
+  it("normalizes persisted ST evidence and summary values to the server six-decimal contract", () => {
+    const result = deriveLegacyCandidates(parsed({
+      capacityEvidence: [{
+        ...parsed().capacityEvidence[0]!,
+        capacityQty: 685.688123456789,
+      }],
+    }), emptyMaster());
+
+    expect(result.standardTimeCandidates[0]).toMatchObject({
+      minimum: 10.500401,
+      median: 10.500401,
+      maximum: 10.500401,
+      observations: [{
+        capacityQty: 685.688123,
+        plannedSeconds: 7200,
+        secondsPerUnit: 10.500401,
+      }],
+    });
+  });
+
+  it("keeps the proposed ST positive and observation-consistent at the accepted capacity cap", () => {
+    const result = deriveLegacyCandidates(parsed({
+      capacityEvidence: [{
+        ...parsed().capacityEvidence[0]!,
+        capacityQty: 1_000_000_000,
+      }],
+    }), emptyMaster());
+
+    expect(result.standardTimeCandidates).toEqual([expect.objectContaining({
+      status: "new",
+      minimum: 0.000007,
+      median: 0.000007,
+      maximum: 0.000007,
+      proposedSecondsPerUnit: 0.000007,
+      observations: [expect.objectContaining({
+        capacityQty: 1_000_000_000,
+        plannedSeconds: 7200,
+        secondsPerUnit: 0.000007,
+      })],
     })]);
   });
 

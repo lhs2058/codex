@@ -27,6 +27,9 @@ const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.blocked": "Blocked",
   "upload.approvedNameFor": "Approved name {code}",
   "upload.approveMaster": "Approve {entity} {code}",
+  "upload.evidenceDisplayed": "Showing {displayed} of {total}",
+  "upload.loadMoreSourcesFor": "Load more sources for {code}",
+  "upload.loadMoreMessagesFor": "Load more messages for {code}",
 };
 
 export function UploadMasterReview(props: {
@@ -34,6 +37,8 @@ export function UploadMasterReview(props: {
   role: AppRole;
   approvals: UploadApproval["masterCandidates"];
   onChange(next: UploadApproval["masterCandidates"]): void;
+  onLoadMore?(candidate: UploadMasterCandidate, evidenceType: "sources" | "messages"): void;
+  evidenceBusyKey?: string | null;
 }): React.JSX.Element {
   const { t } = useI18n(legacy);
   const statusLabel = {
@@ -110,8 +115,40 @@ export function UploadMasterReview(props: {
               <td><UploadStatusBadge status={candidate.status}>{statusLabel[candidate.status]}</UploadStatusBadge></td>
               <td>{candidate.conflictReason ?? "—"}</td>
               <td>{candidate.resolvable ? t("upload.resolvable") : t("upload.blocked")}</td>
-              <td>{candidate.messages.join("; ") || "—"}</td>
-              <td>{candidate.sources.map((source) => `${source.sheet} ${source.row}`).join(", ")}</td>
+              <td>
+                {candidate.messages.join("; ") || "—"}
+                {candidate.messageTotal !== undefined && <p>{t("upload.evidenceDisplayed", {
+                  displayed: candidate.messages.length,
+                  total: candidate.messageTotal,
+                })}</p>}
+                {candidate.messages.length < (candidate.messageTotal ?? candidate.messages.length) && <>
+                  <button
+                    type="button"
+                    disabled={props.evidenceBusyKey === `${candidate.key}|messages`}
+                    aria-label={t("upload.loadMoreMessagesFor", { code: candidate.code })}
+                    onClick={() => props.onLoadMore?.(candidate, "messages")}
+                  >
+                    {t("upload.loadMoreMessagesFor", { code: candidate.code })}
+                  </button>
+                </>}
+              </td>
+              <td>
+                {candidate.sources.map((source) => `${source.sheet} ${source.row}`).join(", ")}
+                {candidate.sourceTotal !== undefined && <p>{t("upload.evidenceDisplayed", {
+                  displayed: candidate.sources.length,
+                  total: candidate.sourceTotal,
+                })}</p>}
+                {candidate.sources.length < (candidate.sourceTotal ?? candidate.sources.length) && <>
+                  <button
+                    type="button"
+                    disabled={props.evidenceBusyKey === `${candidate.key}|sources`}
+                    aria-label={t("upload.loadMoreSourcesFor", { code: candidate.code })}
+                    onClick={() => props.onLoadMore?.(candidate, "sources")}
+                  >
+                    {t("upload.loadMoreSourcesFor", { code: candidate.code })}
+                  </button>
+                </>}
+              </td>
               <td>
                 <input
                   aria-label={t("upload.approveMaster", {

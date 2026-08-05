@@ -164,6 +164,9 @@ function legacyReview(overrides: Partial<LegacyUploadReview> = {}): LegacyUpload
     standardTimeCandidates: [standardTimeCandidate],
     masterCandidateCount: 1,
     standardTimeCandidateCount: 1,
+    candidatePayloadTruncated: false,
+    candidatePayloadOversized: false,
+    candidateNestedContentTruncated: false,
     stWarnings: [],
     defectCount: 0,
     detailTotal: 1,
@@ -980,6 +983,9 @@ describe("upload repository", () => {
           standardTimeCandidates: [],
           masterCandidateCount: 0,
           standardTimeCandidateCount: 0,
+          candidatePayloadTruncated: true,
+          candidatePayloadOversized: true,
+          candidateNestedContentTruncated: true,
           stWarnings: [],
           detailTotal: 2,
         }, error: null };
@@ -1001,6 +1007,9 @@ describe("upload repository", () => {
         conflictCount: 1,
         detailTotal: 2,
         detailPage: 1,
+        candidatePayloadTruncated: true,
+        candidatePayloadOversized: true,
+        candidateNestedContentTruncated: true,
       }),
     );
     expect(rpc).toHaveBeenCalledWith("list_reviewable_upload_batches", {});
@@ -1009,6 +1018,40 @@ describe("upload repository", () => {
       p_offset: 0,
       p_limit: 200,
       p_status: null,
+    });
+  });
+
+  it("maps bounded candidate evidence pages without exposing RPC internals", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        items: [{ sheet: "Production", row: 21 }],
+        total: 21,
+        offset: 20,
+        limit: 20,
+      },
+      error: null,
+    });
+    const repository = createUploadRepository({ rpc } as unknown as UploadRepositoryClient);
+
+    await expect(repository.loadCandidateEvidencePage!(
+      "batch-staged",
+      "master",
+      "model|MODEL-1",
+      "sources",
+      20,
+    )).resolves.toEqual({
+      items: [{ sheet: "Production", row: 21 }],
+      total: 21,
+      offset: 20,
+      limit: 20,
+    });
+    expect(rpc).toHaveBeenCalledWith("get_upload_candidate_evidence", {
+      p_batch_id: "batch-staged",
+      p_candidate_type: "master",
+      p_candidate_key: "model|MODEL-1",
+      p_evidence_type: "sources",
+      p_offset: 20,
+      p_limit: 20,
     });
   });
 
@@ -1453,6 +1496,105 @@ describe("UploadPage", () => {
     fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
 
     expect(await screen.findByRole("button", { name: "Commit upload" })).toBeDisabled();
+  });
+
+  it("treats safe first-page evidence truncation as informational and loads the next page for review", async () => {
+    const firstPage = Array.from({ length: 20 }, (_, index) => ({
+      sheet: "Production",
+      row: index + 1,
+    }));
+    const safePaged = legacyReview({
+      masterCandidates: [{
+        ...masterCandidate,
+        status: "existing",
+        approved: true,
+        currentName: "MODEL-1",
+        sources: firstPage,
+        sourceTotal: 21,
+        sourcesTruncated: true,
+      }],
+      standardTimeCandidates: [],
+      standardTimeCandidateCount: 0,
+      candidateNestedContentTruncated: false,
+    });
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(safePaged),
+      loadDetailPage: vi.fn(),
+      loadCandidateEvidencePage: vi.fn().mockResolvedValue({
+        items: [{ sheet: "Production", row: 21 }],
+        total: 21,
+        offset: 20,
+        limit: 20,
+      }),
+      commitUpload: vi.fn(),
+    };
+
+    render(<UploadPage repository={repository} role="admin" />);
+    fireEvent.change(screen.getByLabelText("Workbook"), { target: { files: [file()] } });
+
+    expect(await screen.findByText("Showing 20 of 21")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Load more sources for MODEL-1" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Commit upload" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Load more sources for MODEL-1" }));
+
+    await waitFor(() => expect(repository.loadCandidateEvidencePage).toHaveBeenCalledWith(
+      "batch-1",
+      "master",
+      "model|MODEL-1",
+      "sources",
+      20,
+    ));
+    expect(await screen.findByText("Showing 21 of 21")).toBeInTheDocument();
+    expect(screen.getAllByRole("region", { name: "Master candidate review" })
+      .some((region) => region.textContent?.includes("Production 21"))).toBe(true);
+  });
+
+  it.each([
+    {
+      language: "ko" as const,
+      warning: "후보 또는 증거 데이터가 안전한 검토 한도를 초과했습니다. 이 배치는 반영할 수 없습니다.",
+    },
+    {
+      language: "vi" as const,
+      warning: "Dữ liệu ứng viên hoặc bằng chứng vượt quá giới hạn xem xét an toàn. Không thể ghi lô này.",
+    },
+  ])("shows a localized warning and blocks commit for incomplete $language candidate evidence", async ({ language, warning }) => {
+    const incomplete = legacyReview({
+      masterCandidates: [{
+        ...masterCandidate,
+        status: "existing",
+        approved: true,
+        currentName: "MODEL-1",
+        payloadOversized: true,
+        sourcesTruncated: false,
+        messagesTruncated: false,
+        sourceElementsOversized: false,
+        messageElementsOversized: false,
+      } as any],
+      standardTimeCandidates: [],
+      standardTimeCandidateCount: 0,
+      candidatePayloadTruncated: false,
+      candidatePayloadOversized: true,
+      candidateNestedContentTruncated: false,
+    } as any);
+    const repository = {
+      stageUpload: vi.fn().mockResolvedValue(incomplete),
+      loadDetailPage: vi.fn(),
+      commitUpload: vi.fn(),
+    };
+
+    render(<I18nProvider profileLanguage={language}>
+      <UploadPage repository={repository} role="admin" />
+    </I18nProvider>);
+    fireEvent.change(screen.getByLabelText(language === "ko" ? "엑셀 파일" : "Tệp Excel"), {
+      target: { files: [file()] },
+    });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(warning);
+    expect(screen.getByRole("button", {
+      name: language === "ko" ? "최종 승인 및 반영" : "Phê duyệt và ghi dữ liệu",
+    })).toBeDisabled();
   });
 
   it("shows row diagnostics and disables commit when any invalid or unregistered row exists", async () => {

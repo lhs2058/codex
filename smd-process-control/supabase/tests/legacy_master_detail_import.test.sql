@@ -23,6 +23,12 @@ values
     '00000000-0000-0000-0000-000000000000',
     'authenticated', 'authenticated', 'legacy-viewer@example.test',
     'not-used', now()
+  ),
+  (
+    '23000000-0000-0000-0000-000000000004',
+    '00000000-0000-0000-0000-000000000000',
+    'authenticated', 'authenticated', 'other-operator@example.test',
+    'not-used', now()
   );
 
 insert into public.profiles (
@@ -40,6 +46,10 @@ values
   (
     '23000000-0000-0000-0000-000000000003',
     'LEGACY-VIEWER', 'Legacy viewer', 'viewer', true
+  ),
+  (
+    '23000000-0000-0000-0000-000000000004',
+    'OTHER-OPERATOR', 'Other operator', 'operator', true
   );
 
 insert into public.models (id, code, name, is_active)
@@ -184,6 +194,14 @@ values
     'standard', 'staged', repeat('8', 64),
     '23000000-0000-0000-0000-000000000001',
     '23000000-0000-0000-0000-000000000001'
+  ),
+  (
+    '23000000-0000-0000-0000-000000000021',
+    'operator-unsafe-existing.xlsx',
+    'private/operator-unsafe-existing.xlsx',
+    'standard', 'staged', repeat('7', 64),
+    '23000000-0000-0000-0000-000000000001',
+    '23000000-0000-0000-0000-000000000001'
   );
 
 select ok(
@@ -241,7 +259,7 @@ select ok(
   to_regprocedure('public.list_import_master_data()') is not null
   and (
     select procedure.prosecdef
-      and procedure.proconfig @> array['search_path=']
+      and procedure.proconfig @> array['search_path=""']
     from pg_proc as procedure
     join pg_namespace as namespace
       on namespace.oid = procedure.pronamespace
@@ -274,14 +292,30 @@ select ok(
       and position(
         'from public.upload_master_candidates' in definition
       ) < position(
-        'return public.commit_upload_batch_v26_impl' in definition
+        'return batch_commit_result' in definition
+      )
+      and position(
+        'return batch_commit_result' in definition
+      ) < position(
+        'upload_batch_not_committable' in definition
+      )
+      and position(
+        'upload_batch_not_committable' in definition
+      ) < position(
+        'legacy_upload_candidate_review_is_complete' in definition
+      )
+      and position(
+        'legacy_upload_candidate_review_is_complete' in definition
+      ) < position(
+        'return private.commit_upload_batch_existing_validated' in definition
       )
     from function_text
   )
   and (
     with function_text as (
       select lower(pg_get_functiondef(
-        'public.stage_upload_candidates(uuid,jsonb,jsonb)'::regprocedure
+        'private.stage_upload_candidates_validated(uuid,jsonb,jsonb)'
+          ::regprocedure
       )) as definition
     )
     select position('for update' in definition) > 0
@@ -300,6 +334,29 @@ select ok(
 );
 select ok(
   (
+    with function_text as (
+      select lower(pg_get_functiondef(
+        'public.commit_upload_batch_with_masters(uuid,boolean,jsonb,jsonb)'
+          ::regprocedure
+      )) as definition
+    )
+    select position('admin_required' in definition) > 0
+      and position('admin_required' in definition)
+        < position('for update' in definition)
+      and position('for update' in definition)
+        < position('return batch.commit_result' in definition)
+      and position('return batch.commit_result' in definition)
+        < position('upload_batch_not_committable' in definition)
+      and position('upload_batch_not_committable' in definition)
+        < position(
+          'legacy_upload_candidate_review_is_complete' in definition
+        )
+    from function_text
+  ),
+  'master-aware commit preserves auth, lock, idempotency, and status order'
+);
+select ok(
+  (
     select count(*) = 4
     from pg_proc as procedure
     join pg_namespace as namespace
@@ -312,7 +369,7 @@ select ok(
         'commit_upload_batch_with_masters'
       )
       and procedure.prosecdef
-      and procedure.proconfig @> array['search_path=']
+      and procedure.proconfig @> array['search_path=""']
   ),
   'all legacy import RPCs fix an empty search path'
 );
@@ -484,11 +541,136 @@ select lives_ok(
     )$$,
   'operator no-master commit accepts a re-resolved existing-only batch'
 );
+select lives_ok(
+  $$select public.stage_upload_candidates(
+      '23000000-0000-0000-0000-000000000021',
+      jsonb_build_array(jsonb_build_object(
+        'key', 'shift|DAY', 'entity', 'shift', 'code', 'DAY',
+        'parentCode', null, 'proposedName', 'DAY', 'status', 'existing',
+        'approved', true, 'conflictReason', null, 'currentName', 'DAY',
+        'resolvable', true, 'startsAt', null, 'endsAt', null,
+        'endDayOffset', null, 'sequence', null, 'messages', '[]'::jsonb,
+        'sources', jsonb_build_array(jsonb_build_object(
+          'sheet', 'Production', 'row', 2
+        ))
+      )),
+      '[]'::jsonb
+    )$$,
+  'operator stages a valid existing-only candidate before corruption'
+);
 
+reset role;
+update public.upload_master_candidates
+set proposed_data = jsonb_set(
+      proposed_data,
+      '{sources,0,row}',
+      '1e100000'::jsonb
+    ),
+    sources = jsonb_set(
+      sources,
+      '{0,row}',
+      '1e100000'::jsonb
+    )
+where batch_id = '23000000-0000-0000-0000-000000000021';
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  '23000000-0000-0000-0000-000000000001',
+  true
+);
+select throws_ok(
+  $$select public.commit_upload_batch(
+      '23000000-0000-0000-0000-000000000021',
+      false
+    )$$,
+  '22023', 'upload_candidate_review_incomplete',
+  'operator zero-approval commit rejects unsafe existing-only evidence'
+);
+
+select set_config(
+  'request.jwt.claim.sub',
+  '23000000-0000-0000-0000-000000000003',
+  true
+);
+select throws_ok(
+  $$select public.commit_upload_batch(
+      '23000000-0000-0000-0000-000000000021', false
+    )$$,
+  '42501', 'insufficient_privilege',
+  'viewer authorization fails before unsafe-candidate completeness'
+);
+select throws_ok(
+  $$select public.commit_upload_batch_with_masters(
+      '23000000-0000-0000-0000-000000000021',
+      false, '[]'::jsonb, '[]'::jsonb
+    )$$,
+  '42501', 'admin_required',
+  'master-aware authorization fails before unsafe-candidate completeness'
+);
+
+select set_config(
+  'request.jwt.claim.sub',
+  '23000000-0000-0000-0000-000000000004',
+  true
+);
+select throws_ok(
+  $$select public.commit_upload_batch(
+      '23000000-0000-0000-0000-000000000021', false
+    )$$,
+  '42501', 'insufficient_privilege',
+  'operator ownership fails before unsafe-candidate completeness'
+);
+
+reset role;
+select set_config('app.commit_upload_mode', 'on', true);
+update public.upload_batches
+set status = 'failed'
+where id = '23000000-0000-0000-0000-000000000021';
+select set_config('app.commit_upload_mode', 'off', true);
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub',
+  '23000000-0000-0000-0000-000000000001',
+  true
+);
+select throws_ok(
+  $$select public.commit_upload_batch(
+      '23000000-0000-0000-0000-000000000021', false
+    )$$,
+  '22023', 'upload_batch_not_committable',
+  'zero-approval status error precedes unsafe-candidate completeness'
+);
+
+reset role;
+select set_config('app.commit_upload_mode', 'on', true);
+update public.upload_batches
+set status = 'completed',
+    approved_by = '23000000-0000-0000-0000-000000000002',
+    approved_at = now(),
+    duplicate_policy = 'skip',
+    commit_result = '{"status":"completed","batchId":"legacy"}'::jsonb
+where id = '23000000-0000-0000-0000-000000000021';
+select set_config('app.commit_upload_mode', 'off', true);
+set local role authenticated;
 select set_config(
   'request.jwt.claim.sub',
   '23000000-0000-0000-0000-000000000002',
   true
+);
+select is(
+  public.commit_upload_batch_with_masters(
+    '23000000-0000-0000-0000-000000000021',
+    false, '[]'::jsonb, '[]'::jsonb
+  ),
+  '{"status":"completed","batchId":"legacy"}'::jsonb,
+  'completed master-aware commit returns stored result before completeness'
+);
+select is(
+  public.commit_upload_batch(
+    '23000000-0000-0000-0000-000000000021', false
+  ),
+  '{"status":"completed","batchId":"legacy"}'::jsonb,
+  'completed zero-approval commit returns stored result before completeness'
 );
 
 insert into public.upload_rows (
@@ -969,8 +1151,9 @@ select throws_ok(
         'approved',true,'approvedSecondsPerUnit',11,
         'effectiveFrom','2026-08-01','effectiveTo',null
       ))
-    )$$,
+  )$$,
   '22023',
+  'upload_batch_has_errors',
   'an invalid final detail aborts the atomic commit'
 );
 select ok(
@@ -1063,6 +1246,119 @@ select is_empty(
     from public.production_records
     where note = 'fractional slot must roll back'$$,
   'exact-second downtime rejection leaves no production record'
+);
+
+reset role;
+select ok(
+  not private.legacy_master_candidate_payload_is_safe(
+    jsonb_build_object(
+      'key', 'model|HUGE', 'entity', 'model', 'code', 'HUGE',
+      'parentCode', null, 'proposedName', repeat('x', 20000),
+      'status', 'new', 'approved', false, 'conflictReason', null,
+      'currentName', null, 'resolvable', true, 'startsAt', null,
+      'endsAt', null, 'endDayOffset', null, 'sequence', null,
+      'messages', '[]'::jsonb, 'sources', '[]'::jsonb
+    )
+  ),
+  'one huge proposed-data field is rejected before staging'
+);
+select ok(
+  not private.legacy_standard_time_candidate_payload_is_safe(
+    jsonb_build_object(
+      'key', 'HUGE|LINE|AOI', 'modelCode', 'HUGE',
+      'lineCode', 'LINE', 'processCode', 'AOI', 'status', 'new',
+      'approved', false, 'proposedSecondsPerUnit', 10,
+      'approvedSecondsPerUnit', null, 'minimum', 10, 'median', 10,
+      'maximum', 10, 'effectiveFrom', '2026-07-31',
+      'effectiveTo', null, 'messages', '[]'::jsonb,
+      'observations', jsonb_build_array(jsonb_build_object(
+        'productionDate', '2026-07-31', 'shiftCode', 'DAY',
+        'timeSlotCode', 'A', 'capacityQty', 720,
+        'plannedSeconds', 7200, 'secondsPerUnit', 10,
+        'sheet', repeat('x', 20000), 'row', 8
+      ))
+    )
+  ),
+  'one huge evidence element is rejected before staging'
+);
+
+select ok(
+  not private.legacy_master_candidate_payload_is_safe(
+    jsonb_build_object(
+      'key', 'model|EXPONENT', 'entity', 'model', 'code', 'EXPONENT',
+      'parentCode', null, 'proposedName', 'Exponent', 'status', 'new',
+      'approved', false, 'conflictReason', null, 'currentName', null,
+      'resolvable', true, 'startsAt', null, 'endsAt', null,
+      'endDayOffset', null, 'sequence', null, 'messages', '[]'::jsonb,
+      'sources', jsonb_build_array(
+        '{"sheet":"Production","row":1e100000}'::jsonb
+      )
+    )
+  ),
+  'compact exponent-form source row is rejected before numeric projection'
+);
+
+select ok(
+  private.legacy_master_candidate_payload_is_safe(
+    jsonb_build_object(
+      'key', 'model|MANY', 'entity', 'model', 'code', 'MANY',
+      'parentCode', null, 'proposedName', 'Many', 'status', 'new',
+      'approved', false, 'conflictReason', null, 'currentName', null,
+      'resolvable', true, 'startsAt', null, 'endsAt', null,
+      'endDayOffset', null, 'sequence', null, 'messages', '[]'::jsonb,
+      'sources', (
+        select jsonb_agg(jsonb_build_object(
+          'sheet', 'Production', 'row', value
+        ))
+        from generate_series(1, 21) as item(value)
+      )
+    )
+  ),
+  'twenty-one legitimate master sources remain stageable'
+);
+
+select ok(
+  private.legacy_standard_time_candidate_payload_is_safe(
+    jsonb_build_object(
+      'key', 'MANY|LINE|AOI', 'modelCode', 'MANY',
+      'lineCode', 'LINE', 'processCode', 'AOI', 'status', 'new',
+      'approved', false, 'proposedSecondsPerUnit', 10,
+      'approvedSecondsPerUnit', null, 'minimum', 10, 'median', 10,
+      'maximum', 10, 'effectiveFrom', '2026-07-31',
+      'effectiveTo', null, 'messages', '[]'::jsonb,
+      'observations', (
+        select jsonb_agg(jsonb_build_object(
+          'productionDate', '2026-07-31', 'shiftCode', 'DAY',
+          'timeSlotCode', 'A', 'capacityQty', 720,
+          'plannedSeconds', 7200, 'secondsPerUnit', 10,
+          'sheet', 'Production', 'row', value
+        ))
+        from generate_series(1, 21) as item(value)
+      )
+    )
+  ),
+  'twenty-one legitimate ST observations remain stageable'
+);
+
+select ok(
+  private.legacy_standard_time_candidate_payload_is_safe(
+    jsonb_build_object(
+      'key', 'CAP|LINE|AOI', 'modelCode', 'CAP',
+      'lineCode', 'LINE', 'processCode', 'AOI', 'status', 'new',
+      'approved', false, 'proposedSecondsPerUnit', 0.000007,
+      'approvedSecondsPerUnit', null, 'minimum', 0.000007,
+      'median', 0.000007, 'maximum', 0.000007,
+      'effectiveFrom', '2026-07-31', 'effectiveTo', null,
+      'messages', '[]'::jsonb,
+      'observations', jsonb_build_array(jsonb_build_object(
+        'productionDate', '2026-07-31', 'shiftCode', 'DAY',
+        'timeSlotCode', 'A', 'capacityQty', 1000000000,
+        'plannedSeconds', 7200, 'secondsPerUnit', 0.000007,
+        'sheet', 'Production', 'row', 8
+      ))
+    )
+  ),
+  'accepted capacity cap yields a positive six-decimal stageable candidate'
 );
 
 select * from finish();

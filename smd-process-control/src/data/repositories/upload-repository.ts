@@ -74,6 +74,14 @@ export interface UploadDetailPage {
   diagnostics: UploadReview["diagnostics"];
 }
 
+export type CandidateEvidenceType = "sources" | "messages" | "observations";
+export interface CandidateEvidencePage {
+  items: unknown[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
 export interface UploadApproval {
   masterCandidates: Array<{ key: string; approved: boolean; approvedName: string }>;
   standardTimeCandidates: Array<{
@@ -99,6 +107,13 @@ export interface UploadRepository {
   loadDetailPage(batchId: string, page: number, status?: string): Promise<UploadDetailPage>;
   listReviewableBatches?(): Promise<ReviewableUploadBatch[]>;
   openUploadReview?(batchId: string): Promise<LegacyUploadReview>;
+  loadCandidateEvidencePage?(
+    batchId: string,
+    candidateType: "master" | "standard_time",
+    candidateKey: string,
+    evidenceType: CandidateEvidenceType,
+    offset: number,
+  ): Promise<CandidateEvidencePage>;
   commitUpload(batchId: string, replaceConflicts: boolean, approval?: UploadApproval): Promise<UploadCommitResult & {
     skippedCount: number;
     masterInsertedCount: number;
@@ -572,6 +587,9 @@ export function createUploadRepository(
           standardTimeCandidates: [],
           masterCandidateCount: 0,
           standardTimeCandidateCount: 0,
+          candidatePayloadTruncated: false,
+          candidatePayloadOversized: false,
+          candidateNestedContentTruncated: false,
           stWarnings: [],
           detailTotal: Number(duplicate.detailTotal ?? detail.total),
           detailPage: detail.page,
@@ -758,6 +776,9 @@ export function createUploadRepository(
         standardTimeCandidates: candidates.standardTimeCandidates,
         masterCandidateCount: Number(stagedCandidates.masterCandidateCount ?? 0),
         standardTimeCandidateCount: Number(stagedCandidates.standardTimeCandidateCount ?? 0),
+        candidatePayloadTruncated: false,
+        candidatePayloadOversized: false,
+        candidateNestedContentTruncated: false,
         stWarnings: candidates.stWarnings,
         detailTotal: detail.total,
         detailPage: detail.page,
@@ -800,9 +821,40 @@ export function createUploadRepository(
         standardTimeCandidates: Array.isArray(value.standardTimeCandidates) ? value.standardTimeCandidates : [],
         masterCandidateCount: Number(value.masterCandidateCount ?? 0),
         standardTimeCandidateCount: Number(value.standardTimeCandidateCount ?? 0),
+        candidatePayloadTruncated: Boolean(value.candidatePayloadTruncated)
+          || Boolean(value.masterCandidatesTruncated)
+          || Boolean(value.standardTimeCandidatesTruncated),
+        candidatePayloadOversized: Boolean(value.candidatePayloadOversized),
+        candidateNestedContentTruncated: Boolean(value.candidateNestedContentTruncated),
         stWarnings: Array.isArray(value.stWarnings) ? value.stWarnings : [],
         detailTotal: Number(value.detailTotal ?? detail.total),
         detailPage: detail.page,
+      };
+    },
+
+    async loadCandidateEvidencePage(
+      batchId,
+      candidateType,
+      candidateKey,
+      evidenceType,
+      offset,
+    ) {
+      const safeOffset = Number.isFinite(offset)
+        ? Math.max(0, Math.floor(offset))
+        : 0;
+      const value = requestData(await client.rpc("get_upload_candidate_evidence", {
+        p_batch_id: batchId,
+        p_candidate_type: candidateType,
+        p_candidate_key: candidateKey,
+        p_evidence_type: evidenceType,
+        p_offset: safeOffset,
+        p_limit: 20,
+      }), "upload_candidate_evidence_failed") as any;
+      return {
+        items: Array.isArray(value.items) ? value.items : [],
+        total: Number(value.total ?? 0),
+        offset: Number(value.offset ?? safeOffset),
+        limit: Number(value.limit ?? 20),
       };
     },
 

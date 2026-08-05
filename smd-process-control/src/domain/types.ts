@@ -165,6 +165,13 @@ export interface UploadMasterCandidate {
   sequence: number | null;
   messages: string[];
   sources: UploadSourceRef[];
+  payloadOversized?: boolean;
+  sourcesTruncated?: boolean;
+  messagesTruncated?: boolean;
+  sourceElementsOversized?: boolean;
+  messageElementsOversized?: boolean;
+  sourceTotal?: number;
+  messageTotal?: number;
 }
 export interface StandardTimeObservation extends UploadSourceRef {
   productionDate: string;
@@ -190,6 +197,13 @@ export interface UploadStandardTimeCandidate {
   effectiveTo: string | null;
   messages: string[];
   observations: StandardTimeObservation[];
+  payloadOversized?: boolean;
+  messagesTruncated?: boolean;
+  observationsTruncated?: boolean;
+  messageElementsOversized?: boolean;
+  observationElementsOversized?: boolean;
+  observationTotal?: number;
+  messageTotal?: number;
 }
 
 export interface CandidateDerivationResult {
@@ -215,6 +229,9 @@ export interface LegacyUploadReview extends UploadReview {
   workbookKind: WorkbookKind;
   masterCandidates: UploadMasterCandidate[];
   standardTimeCandidates: UploadStandardTimeCandidate[];
+  candidatePayloadTruncated: boolean;
+  candidatePayloadOversized: boolean;
+  candidateNestedContentTruncated: boolean;
   detailTotal: number;
   detailPage: number;
 }

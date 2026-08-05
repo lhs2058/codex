@@ -34,7 +34,15 @@ type DashboardQuery = PaginatedQuery<Record<string, unknown>> & {
   in(column: string, values: string[]): DashboardQuery;
 };
 export interface DashboardProductionClient extends ProductionClient { from(table: "production_records" | "downtime_records"): DashboardQuery; }
-export class ProductionRepositoryError extends Error { code?: string; constructor(error: { code?: string; message?: string }) { super(error.message ?? "production_save_failed"); this.code = error.code; } }
+export class ProductionRepositoryError extends Error {
+  code?: string;
+  constructor(error: { code?: string; message?: string }) {
+    super(error.message ?? "production_save_failed");
+    this.code = error.code === "PT409" && error.message === "record_version_conflict"
+      ? "40001"
+      : error.code;
+  }
+}
 
 function mapDowntime(row: ProductionEntryDraft["downtime"][number]) { return { reason_id: row.reasonId, ...(row.minutes !== undefined ? { minutes: row.minutes } : { start_time: row.startTime, end_time: row.endTime }), note: row.note }; }
 export function toProductionPayload(draft: ProductionRecordDraft): Record<string, unknown> {

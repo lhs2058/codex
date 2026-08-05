@@ -62,7 +62,7 @@ describe("analysis repository", () => {
         processes: [{ id: "process-old", code: "ICT", name: "Old process", is_active: false, version: 2 }],
         lines: [{ id: "line-old", code: "OLD", name: "Old line", is_active: false, version: 2 }],
         shifts: [{ id: "shift-old", code: "OLD", name: "Old shift", is_active: false, version: 2 }],
-        time_slots: [{ id: "slot-old", shift_id: "shift-old", code: "Z", starts_at: "08:00", ends_at: "09:00", end_day_offset: 0, sequence: 9 }],
+        time_slots: [{ id: "slot-old", shift_id: "shift-old", code: "Z", starts_at: "08:00:00", ends_at: "09:00:00", end_day_offset: 0, sequence: 9 }],
         downtime_reasons: [{ id: "reason-old", code: "OLD", name: "Legacy stop", is_active: false, version: 2 }],
         standard_times: [{ id: "st-old", model_id: "model-old", process_id: "process-old", line_id: "line-old", seconds_per_unit: 60, effective_from: "2025-01-01", effective_to: null }],
       },
@@ -78,7 +78,7 @@ describe("analysis repository", () => {
       processes: [expect.objectContaining({ code: "ICT", active: false })],
       lines: [expect.objectContaining({ code: "OLD", active: false })],
       shifts: [expect.objectContaining({ code: "OLD", active: false })],
-      timeSlots: [expect.objectContaining({ code: "Z" })],
+      timeSlots: [expect.objectContaining({ code: "Z", startsAt: "08:00", endsAt: "09:00" })],
       downtimeReasons: [expect.objectContaining({ name: "Legacy stop", active: false })],
       standardTimes: [expect.objectContaining({ secondsPerUnit: 60 })],
     }));

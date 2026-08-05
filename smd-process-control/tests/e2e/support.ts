@@ -20,7 +20,8 @@ export async function login(page: Page, role: SeededRole, next = "/") {
 }
 
 export async function selectConfigured(page: Page, label: string, environmentName: string) {
-  await page.getByLabel(label, { exact: true }).selectOption({ label: requiredEnv(environmentName) });
+  await page.getByRole("combobox", { name: label, exact: true })
+    .selectOption({ label: requiredEnv(environmentName) });
 }
 
 export async function selectProductionNaturalKey(

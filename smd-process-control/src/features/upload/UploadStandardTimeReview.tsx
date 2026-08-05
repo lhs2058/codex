@@ -33,6 +33,9 @@ const legacy: Partial<Record<TranslationKey, string>> = {
   "upload.sheet": "Sheet",
   "upload.row": "Row",
   "upload.useObservation": "Use {seconds} seconds from {sheet} row {row}",
+  "upload.evidenceDisplayed": "Showing {displayed} of {total}",
+  "upload.loadMoreObservationsFor": "Load more observations for {model} {line} {process}",
+  "upload.loadMoreMessagesForStandardTime": "Load more messages for {model} {line} {process}",
 };
 
 export function isBlockedStandardTimeCandidate(candidate: UploadStandardTimeCandidate): boolean {
@@ -45,6 +48,8 @@ export function UploadStandardTimeReview(props: {
   role: AppRole;
   approvals: UploadApproval["standardTimeCandidates"];
   onChange(next: UploadApproval["standardTimeCandidates"]): void;
+  onLoadMore?(candidate: UploadStandardTimeCandidate, evidenceType: "observations" | "messages"): void;
+  evidenceBusyKey?: string | null;
 }): React.JSX.Element {
   const { t } = useI18n(legacy);
   const statusLabel = {
@@ -100,6 +105,28 @@ export function UploadStandardTimeReview(props: {
           <div><dt>{t("upload.effectiveTo")}</dt><dd>{candidate.effectiveTo ?? t("upload.openEnded")}</dd></div>
         </dl>
         {candidate.messages.length > 0 && <p>{candidate.messages.join("; ")}</p>}
+        {candidate.messageTotal !== undefined && <p>{t("upload.evidenceDisplayed", {
+          displayed: candidate.messages.length,
+          total: candidate.messageTotal,
+        })}</p>}
+        {candidate.messages.length < (candidate.messageTotal ?? candidate.messages.length) && <>
+          <button
+            type="button"
+            disabled={props.evidenceBusyKey === `${candidate.key}|messages`}
+            aria-label={t("upload.loadMoreMessagesForStandardTime", {
+              model: candidate.modelCode,
+              line: candidate.lineCode,
+              process: candidate.processCode,
+            })}
+            onClick={() => props.onLoadMore?.(candidate, "messages")}
+          >
+            {t("upload.loadMoreMessagesForStandardTime", {
+              model: candidate.modelCode,
+              line: candidate.lineCode,
+              process: candidate.processCode,
+            })}
+          </button>
+        </>}
         <label>
           {t("upload.approvedStandardTime")}
           <input
@@ -138,6 +165,10 @@ export function UploadStandardTimeReview(props: {
         </label>
         <details>
           <summary>{t("upload.evidence")}</summary>
+          <p>{t("upload.evidenceDisplayed", {
+            displayed: candidate.observations.length,
+            total: candidate.observationTotal ?? candidate.observations.length,
+          })}</p>
           <div className="table-scroll" tabIndex={0} role="region" aria-label={t("upload.evidenceRegion", {
             model: candidate.modelCode,
             line: candidate.lineCode,
@@ -190,6 +221,23 @@ export function UploadStandardTimeReview(props: {
               </tbody>
             </table>
           </div>
+          {candidate.observations.length < (candidate.observationTotal ?? candidate.observations.length)
+            && <button
+              type="button"
+              disabled={props.evidenceBusyKey === `${candidate.key}|observations`}
+              aria-label={t("upload.loadMoreObservationsFor", {
+                model: candidate.modelCode,
+                line: candidate.lineCode,
+                process: candidate.processCode,
+              })}
+              onClick={() => props.onLoadMore?.(candidate, "observations")}
+            >
+              {t("upload.loadMoreObservationsFor", {
+                model: candidate.modelCode,
+                line: candidate.lineCode,
+                process: candidate.processCode,
+              })}
+            </button>}
         </details>
       </article>;
     })}

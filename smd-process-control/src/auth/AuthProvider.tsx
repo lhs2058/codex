@@ -39,12 +39,21 @@ export function AuthProvider({ client, children }: PropsWithChildren<{ client: S
       setState({ status: "ready", session: null, profile: null });
       void Promise.resolve().then(() => client.auth.signOut()).catch(() => undefined);
     };
-    const resolveProfile = (session: Session, token: number) => {
+    const resolveProfile = (session: Session, token: number, mayRetry = true) => {
       void Promise.resolve().then(() => {
         if (!current(token)) return null;
         return client.from("profiles").select("role,is_active,language").eq("id", session.user.id).single();
-      }).then((result) => {
+      }).then(async (result) => {
         if (!current(token) || !result) return;
+        if (result.error && mayRetry) {
+          const { data } = await client.auth.getSession();
+          if (!current(token)) return;
+          if (data.session?.user.id === session.user.id) {
+            latestSession.current = data.session;
+            resolveProfile(data.session, token, false);
+            return;
+          }
+        }
         if (result.error || !result.data || !result.data.is_active) {
           clearAndSignOut(token);
           return;

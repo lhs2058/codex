@@ -88,6 +88,40 @@ describe("application authentication", () => {
     await expect(screen.findByText("Admin workspace")).resolves.toBeInTheDocument();
   });
 
+  it("retries a transient profile error when the same signed-in session is still current", async () => {
+    const signOut = vi.fn();
+    const getSession = vi.fn()
+      .mockResolvedValueOnce({ data: { session: null }, error: null })
+      .mockResolvedValueOnce({ data: { session }, error: null });
+    const single = vi.fn()
+      .mockResolvedValueOnce({ data: null, error: { status: 401 } })
+      .mockResolvedValueOnce({ data: { role: "admin", is_active: true }, error: null });
+    let listener: (_event: string, next: typeof session | null) => void = () => undefined;
+    const client: SessionAuthClient = {
+      auth: {
+        getSession,
+        onAuthStateChange: vi.fn((callback) => {
+          listener = callback;
+          return { data: { subscription: { unsubscribe: vi.fn() } } };
+        }),
+        signOut,
+      },
+      from: vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({ single }),
+        }),
+      }),
+    };
+    render(<AuthProvider client={client}><StateProbe /></AuthProvider>);
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("ready:none:none"));
+
+    await act(async () => { listener("SIGNED_IN", session); });
+
+    await waitFor(() => expect(screen.getByTestId("auth-state")).toHaveTextContent("ready:user-1:admin"));
+    expect(single).toHaveBeenCalledTimes(2);
+    expect(signOut).not.toHaveBeenCalled();
+  });
+
   it("signs out a stale profile and sends it to login without showing protected content", async () => {
     const client = clientFor(null);
     render(<MemoryRouter initialEntries={["/"]}><AuthProvider client={client}><App /></AuthProvider></MemoryRouter>);

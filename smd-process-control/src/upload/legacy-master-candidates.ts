@@ -36,8 +36,8 @@ const SHIFT_SLOT_DEFINITIONS: Record<"DAY" | "NIGHT", Record<"A" | "B" | "C" | "
 
 const PROCESS_CODES = new Set<ProcessCode>(["SPI", "AOI", "XRAY", "ICT", "ROUTER"]);
 
-function roundThree(value: number): number {
-  return Math.round((value + Number.EPSILON) * 1_000) / 1_000;
+function roundSix(value: number): number {
+  return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
 }
 
 function sourceRef(sourceSheet: string, sourceRow: number): UploadSourceRef {
@@ -79,14 +79,17 @@ function standardMasterCandidate(
         : master.downtimeReasons;
   const existing = records.find((record) => record.code === code);
   const active = existing?.active === true;
-  const exact = active && existing?.name === code;
+  const reusableFallback = entity === "downtime_reason"
+    && code === "LEGACY_UNSPECIFIED"
+    && active;
+  const exact = active && (existing?.name === code || reusableFallback);
   const conflictReason = !existing ? null : active ? "name-mismatch" : "inactive";
   return {
     key: `${entity}|${code}`,
     entity,
     code,
     parentCode: null,
-    proposedName: code,
+    proposedName: reusableFallback ? existing!.name : code,
     status: exact ? "existing" : existing ? "conflict" : "new",
     approved: exact,
     conflictReason: exact ? null : conflictReason,
@@ -196,28 +199,36 @@ function deriveStandardTimeCandidates(
   master: MasterDataSnapshot,
   diagnostics: CandidateDerivationResult["diagnostics"],
 ): UploadStandardTimeCandidate[] {
-  const groups = new Map<string, StandardTimeObservation[]>();
+  const groups = new Map<string, Array<{
+    observation: StandardTimeObservation;
+    rawSecondsPerUnit: number;
+  }>>();
   for (const evidence of parsed.capacityEvidence) {
-    if (!Number.isFinite(evidence.capacityQty) || evidence.capacityQty <= 0 || !validDimensions(evidence, diagnostics)) continue;
+    if (!Number.isFinite(evidence.capacityQty)
+      || evidence.capacityQty <= 0
+      || evidence.capacityQty > 1_000_000_000
+      || !validDimensions(evidence, diagnostics)) continue;
     const seconds = plannedSeconds(evidence.shiftCode, evidence.timeSlotCode);
     if (seconds <= 0) continue;
+    const rawSecondsPerUnit = seconds / evidence.capacityQty;
     const observation: StandardTimeObservation = {
       ...sourceRef(evidence.sourceSheet, evidence.sourceRow),
       productionDate: evidence.productionDate,
       shiftCode: evidence.shiftCode,
       timeSlotCode: evidence.timeSlotCode,
-      capacityQty: evidence.capacityQty,
-      plannedSeconds: seconds,
-      secondsPerUnit: seconds / evidence.capacityQty,
+      capacityQty: roundSix(evidence.capacityQty),
+      plannedSeconds: roundSix(seconds),
+      secondsPerUnit: roundSix(rawSecondsPerUnit),
     };
     const key = `${evidence.modelCode}|${evidence.lineCode}|${evidence.processCode}`;
     const current = groups.get(key) ?? [];
-    current.push(observation);
+    current.push({ observation, rawSecondsPerUnit });
     groups.set(key, current);
   }
-  return [...groups.entries()].map(([key, observations]) => {
+  return [...groups.entries()].map(([key, samples]) => {
+    const observations = samples.map((sample) => sample.observation);
     const [modelCode, lineCode, processCode] = key.split("|") as [string, string, ProcessCode];
-    const values = observations.map((observation) => observation.secondsPerUnit);
+    const values = samples.map((sample) => sample.rawSecondsPerUnit);
     const medianValue = median(values);
     const minimum = Math.min(...values);
     const maximum = Math.max(...values);
@@ -243,11 +254,11 @@ function deriveStandardTimeCandidates(
       processCode,
       status,
       approved: false,
-      proposedSecondsPerUnit: status === "new" ? roundThree(medianValue) : null,
+      proposedSecondsPerUnit: status === "new" ? roundSix(medianValue) : null,
       approvedSecondsPerUnit: null,
-      minimum,
-      median: medianValue,
-      maximum,
+      minimum: roundSix(minimum),
+      median: roundSix(medianValue),
+      maximum: roundSix(maximum),
       effectiveFrom,
       effectiveTo: null,
       messages,
