@@ -16,6 +16,10 @@ const smoke = resolve(
   "supabase/tests/legacy_master_detail_import.smoke.sql",
 );
 
+function readSql(path: string) {
+  return readFileSync(path, "utf8").replace(/\r\n?/g, "\n");
+}
+
 function readDollarLiteral(sql: string, tag: string) {
   const delimiter = `$${tag}$`;
   const start = sql.indexOf(delimiter);
@@ -28,8 +32,8 @@ function readDollarLiteral(sql: string, tag: string) {
 
 describe("migration 024 legacy slot record guard", () => {
   it("converges the migration 023 function through guarded one-time patches", () => {
-    const source023 = readFileSync(migration023, "utf8");
-    const source024 = readFileSync(migration024, "utf8");
+    const source023 = readSql(migration023);
+    const source024 = readSql(migration024);
     let transformed = source023;
 
     for (const name of ["dispatch", "status"]) {
@@ -54,7 +58,7 @@ describe("migration 024 legacy slot record guard", () => {
   });
 
   it("keeps a runtime new-model commit regression in the rollback smoke", () => {
-    const sql = readFileSync(smoke, "utf8");
+    const sql = readSql(smoke);
     const regression = sql.match(
       /-- SLOT_GUARD_REGRESSION_START([\s\S]*?)-- SLOT_GUARD_REGRESSION_END/,
     )?.[1];
